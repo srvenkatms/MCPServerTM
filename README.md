@@ -39,12 +39,18 @@ dotnet run
 
 The server will start on `http://localhost:5270`
 
-### Getting a Development Token
+### Getting a Token from Entra ID
+
+To use the MCP Server, you need to obtain a JWT token from your configured Entra ID tenant with the `mcp:tools` scope:
 
 ```bash
-curl -X POST "http://localhost:5270/dev/token" \
-  -H "Content-Type: application/json" \
-  -d '{"userId": "test-user", "username": "Test User"}'
+# Example token request to Entra ID
+curl -X POST "https://login.microsoftonline.com/{tenant-id}/oauth2/v2.0/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=client_credentials" \
+  -d "client_id={client-id}" \
+  -d "client_secret={client-secret}" \
+  -d "scope=api://your-app-registration-id/mcp:tools"
 ```
 
 ### Using the Weather Tools
@@ -81,29 +87,36 @@ curl -X POST "http://localhost:5270/mcp/tools/getweatherforecast" \
 ### Public Endpoints
 - `GET /health` - Health check
 - `GET /mcp/info` - Server information and capabilities
-- `GET /.well-known/oauth-authorization-server` - OAuth metadata
-- `POST /dev/token` - Development token generation (dev only)
+- `GET /.well-known/oauth-authorization-server` - OAuth metadata (points to Entra ID)
 - `GET /swagger` - API documentation
 
-### Protected Endpoints (require authentication)
+### Protected Endpoints (require Entra ID authentication)
 - `GET /mcp/tools` - List available tools
 - `POST /mcp/tools/{toolName}` - Execute a specific tool (requires `mcp:tools` scope)
 
 ## Configuration
 
-The server can be configured via `appsettings.json`:
+The server is configured via `appsettings.json` for Entra ID integration:
 
 ```json
 {
-  "Jwt": {
-    "Key": "your-256-bit-secret-key",
-    "Issuer": "https://localhost:7000",
-    "Audience": "mcp-server-api"
+  "EntraId": {
+    "Authority": "https://login.microsoftonline.com/{your-tenant-id}",
+    "Audience": "api://your-app-registration-id"
   }
 }
 ```
 
-For production with Entra ID, update the JWT configuration in `Program.cs` to use Azure AD authority and audience.
+Replace `{your-tenant-id}` with your actual Azure AD tenant ID and `{your-app-registration-id}` with your app registration ID.
+
+### Required Entra ID App Registration Setup
+
+1. **Create an App Registration** in the Azure Portal
+2. **Set API Permissions**:
+   - Add a custom scope: `mcp:tools`
+3. **Configure Token Claims**:
+   - Ensure the `scope` claim includes `mcp:tools`
+4. **App ID URI**: Set to `api://your-app-registration-id`
 
 ## Development
 
@@ -146,13 +159,12 @@ public class MyTools
 
 ## Security
 
-- JWT tokens are validated for signature, issuer, audience, and expiration
-- Tools require the `mcp:tools` scope
-- Development token endpoint is only available in Development environment
-- HTTPS redirection is enabled
+- JWT tokens are validated against Entra ID for signature, issuer, audience, and expiration
+- Tools require the `mcp:tools` scope from your Entra ID app registration
+- HTTPS redirection is enabled for production security
 
 For production deployment:
-- Use proper JWT signing keys
-- Configure for your OAuth provider (e.g., Entra ID)
-- Disable development token endpoint
+- Configure your Entra ID tenant and app registration
+- Set up proper API permissions and scopes
 - Use production-grade secrets management
+- Enable appropriate monitoring and logging

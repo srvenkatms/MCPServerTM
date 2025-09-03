@@ -1,8 +1,6 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
-using System.Text;
 using ModelContextProtocol.Server;
-using System.Security.Claims;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -43,31 +41,21 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
-// Configure JWT Bearer Authentication
+// Configure JWT Bearer Authentication for Entra ID
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
-        // For development/testing - use a simple symmetric key
-        // In production, you would configure this for Entra ID
-        var key = Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"] ?? "your-256-bit-secret-key-here-that-is-long-enough-for-hs256");
-        
+        // Configure for Entra ID (Azure AD)
+        options.Authority = builder.Configuration["EntraId:Authority"];
+        options.Audience = builder.Configuration["EntraId:Audience"];
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
             ValidateAudience = true,
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
-            ValidIssuer = builder.Configuration["Jwt:Issuer"] ?? "https://localhost:7000",
-            ValidAudience = builder.Configuration["Jwt:Audience"] ?? "mcp-server-api",
-            IssuerSigningKey = new SymmetricSecurityKey(key),
-            ClockSkew = TimeSpan.Zero
+            ClockSkew = TimeSpan.FromMinutes(5) // Allow 5 minutes clock skew for Azure AD
         };
-
-        // For production Entra ID integration, you would use:
-        // options.Authority = "https://login.microsoftonline.com/{tenant-id}";
-        // options.Audience = "api://your-app-id";
-        // options.TokenValidationParameters.ValidateIssuer = true;
-        // options.TokenValidationParameters.ValidateAudience = true;
     });
 
 builder.Services.AddAuthorization(options =>
@@ -97,13 +85,14 @@ app.UseAuthorization();
 // OAuth resource metadata endpoint for client discovery
 app.MapGet("/.well-known/oauth-authorization-server", () =>
 {
+    var authority = builder.Configuration["EntraId:Authority"];
     return Results.Ok(new
     {
-        issuer = "https://localhost:7000",
-        authorization_endpoint = "https://localhost:7000/oauth/authorize",
-        token_endpoint = "https://localhost:7000/oauth/token",
-        userinfo_endpoint = "https://localhost:7000/oauth/userinfo",
-        jwks_uri = "https://localhost:7000/.well-known/jwks.json",
+        issuer = authority,
+        authorization_endpoint = $"{authority}/oauth2/v2.0/authorize",
+        token_endpoint = $"{authority}/oauth2/v2.0/token",
+        userinfo_endpoint = $"{authority}/oidc/userinfo",
+        jwks_uri = $"{authority}/discovery/v2.0/keys",
         scopes_supported = new[] { "mcp:tools", "openid", "profile" },
         response_types_supported = new[] { "code", "token" },
         grant_types_supported = new[] { "authorization_code", "client_credentials" },
@@ -142,45 +131,6 @@ app.MapMcpServer();
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }))
     .WithTags("Health");
 
-// Development token endpoint for testing
-if (app.Environment.IsDevelopment())
-{
-    app.MapPost("/dev/token", (TokenRequest request) =>
-    {
-        var key = Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"] ?? "your-256-bit-secret-key-here-that-is-long-enough-for-hs256");
-        var issuer = builder.Configuration["Jwt:Issuer"] ?? "https://localhost:7000";
-        var audience = builder.Configuration["Jwt:Audience"] ?? "mcp-server-api";
-
-        var claims = new List<Claim>
-        {
-            new(ClaimTypes.NameIdentifier, request.UserId ?? "test-user"),
-            new(ClaimTypes.Name, request.Username ?? "Test User"),
-            new("scope", "mcp:tools")
-        };
-
-        var tokenDescriptor = new Microsoft.IdentityModel.Tokens.SecurityTokenDescriptor
-        {
-            Subject = new ClaimsIdentity(claims),
-            Expires = DateTime.UtcNow.AddHours(1),
-            Issuer = issuer,
-            Audience = audience,
-            SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256)
-        };
-
-        var tokenHandler = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler();
-        var token = tokenHandler.CreateToken(tokenDescriptor);
-        var tokenString = tokenHandler.WriteToken(token);
-
-        return Results.Ok(new
-        {
-            access_token = tokenString,
-            token_type = "Bearer",
-            expires_in = 3600,
-            scope = "mcp:tools"
-        });
-    }).WithTags("Development");
-}
+// Note: Development token endpoint removed - use Entra ID for token generation
 
 app.Run();
-
-public record TokenRequest(string? UserId = null, string? Username = null);
