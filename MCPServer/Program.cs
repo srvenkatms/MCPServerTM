@@ -83,9 +83,9 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 // OAuth resource metadata endpoint for client discovery
-app.MapGet("/.well-known/oauth-authorization-server", () =>
+app.MapGet("/.well-known/oauth-authorization-server", (IConfiguration config) =>
 {
-    var authority = builder.Configuration["EntraId:Authority"];
+    var authority = config["EntraId:Authority"];
     return Results.Ok(new
     {
         issuer = authority,
