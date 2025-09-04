@@ -50,12 +50,31 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         options.Audience = builder.Configuration["EntraId:Audience"];
         options.TokenValidationParameters = new TokenValidationParameters
         {
-            ValidateIssuer = true,
-            ValidateAudience = true,
-            ValidateLifetime = true,
-            ValidateIssuerSigningKey = true,
+            ValidateIssuer = !builder.Environment.IsDevelopment(), // Skip validation in dev
+            ValidateAudience = !builder.Environment.IsDevelopment(), // Skip validation in dev
+            ValidateLifetime = !builder.Environment.IsDevelopment(), // Skip validation in dev
+            ValidateIssuerSigningKey = !builder.Environment.IsDevelopment(), // Skip validation in dev
             ClockSkew = TimeSpan.FromMinutes(5) // Allow 5 minutes clock skew for Azure AD
         };
+        
+        // In development, accept any bearer token for testing
+        if (builder.Environment.IsDevelopment())
+        {
+            options.Events = new Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents
+            {
+                OnTokenValidated = context =>
+                {
+                    // For development, create a basic identity with the required claim
+                    var claims = new List<System.Security.Claims.Claim>
+                    {
+                        new System.Security.Claims.Claim("scope", "mcp:tools")
+                    };
+                    var identity = new System.Security.Claims.ClaimsIdentity(claims, "Bearer");
+                    context.Principal = new System.Security.Claims.ClaimsPrincipal(identity);
+                    return Task.CompletedTask;
+                }
+            };
+        }
     });
 
 builder.Services.AddAuthorization(options =>
@@ -80,6 +99,31 @@ app.UseHttpsRedirection();
 
 // Add authentication and authorization middleware
 app.UseAuthentication();
+
+// Development middleware to bypass authentication for development tokens
+if (app.Environment.IsDevelopment())
+{
+    app.Use(async (context, next) =>
+    {
+        var authHeader = context.Request.Headers.Authorization.FirstOrDefault();
+        if (authHeader?.StartsWith("Bearer ") == true)
+        {
+            var token = authHeader["Bearer ".Length..].Trim();
+            if (token == "dev-token-123")
+            {
+                // Create a development identity with the required claim
+                var claims = new List<System.Security.Claims.Claim>
+                {
+                    new System.Security.Claims.Claim("scope", "mcp:tools")
+                };
+                var identity = new System.Security.Claims.ClaimsIdentity(claims, "DevToken");
+                context.User = new System.Security.Claims.ClaimsPrincipal(identity);
+            }
+        }
+        await next();
+    });
+}
+
 app.UseAuthorization();
 
 // OAuth resource metadata endpoint for client discovery
@@ -132,5 +176,20 @@ app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = Dat
     .WithTags("Health");
 
 // Note: Development token endpoint removed - use Entra ID for token generation
+
+// Development token endpoint for testing (only in Development environment)
+if (app.Environment.IsDevelopment())
+{
+    app.MapPost("/dev/token", () => 
+    {
+        return Results.Ok(new 
+        { 
+            access_token = "dev-token-123",
+            token_type = "Bearer",
+            expires_in = 3600,
+            scope = "mcp:tools"
+        });
+    }).WithTags("Development");
+}
 
 app.Run();
