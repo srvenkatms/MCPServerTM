@@ -3,8 +3,10 @@ name: Build and Deploy to ACR (No Cache)
 on:
   push:
     branches: [main]
+    paths: ['MCPServer/**']
   pull_request:
     branches: [main]
+    paths: ['MCPServer/**']
 
 env:
   REGISTRY: mcpcontainerreg.azurecr.io
