@@ -1,0 +1,54 @@
+name: Build and Deploy Weather API to ACR (No Cache)
+
+on:
+  push:
+    branches: [main]
+    paths: ['WeatherAPI/**']
+  pull_request:
+    branches: [main]
+    paths: ['WeatherAPI/**']
+
+env:
+  REGISTRY: mcpcontainerreg.azurecr.io
+  IMAGE_NAME: AgentAPI
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout code
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Set up Docker Buildx (default driver is fine since no caching)
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # 3. Log in to Azure Container Registry using SP credentials
+      - name: Log in to Azure Container Registry
+        uses: azure/docker-login@v1
+        with:
+          login-server: ${{ env.REGISTRY }}
+          username: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
+          password: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
+
+      # 4. Extract metadata for tags and labels
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      # 5. Build and push Docker image (no cache options)
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./WeatherAPI
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
