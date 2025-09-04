@@ -1,4 +1,4 @@
-name: Build and Deploy to ACR
+name: Build and Deploy to ACR (No Cache)
 
 on:
   push:
@@ -19,12 +19,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. Set up Docker Buildx with container driver (required for caching)
+      # 2. Set up Docker Buildx (default driver is fine since no caching)
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-        with:
-          driver: docker-container
-          install: true
 
       # 3. Log in to Azure Container Registry using SP credentials
       - name: Log in to Azure Container Registry
@@ -46,7 +43,7 @@ jobs:
             type=sha,prefix={{branch}}-
             type=raw,value=latest,enable={{is_default_branch}}
 
-      # 5. Build and push Docker image with caching enabled
+      # 5. Build and push Docker image (no cache options)
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
@@ -54,5 +51,3 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
