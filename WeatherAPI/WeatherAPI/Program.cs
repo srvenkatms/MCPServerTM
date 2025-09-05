@@ -54,7 +54,6 @@ builder.Services.AddHttpClient<IMcpClientService, McpClientService>();
 
 // Register services
 builder.Services.AddScoped<IAgentFoundryService, AgentFoundryService>();
-builder.Services.AddScoped<IMcpClientService, McpClientService>();
 builder.Services.AddScoped<IWeatherService, WeatherService>();
 
 // Add health checks
