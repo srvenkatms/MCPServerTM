@@ -30,6 +30,8 @@ public class McpServerConfig
     
     public string TokenEndpoint { get; set; } = string.Empty;
     
+    public string TenantId { get; set; } = string.Empty;
+    
     public string Scope { get; set; } = string.Empty;
 }
 

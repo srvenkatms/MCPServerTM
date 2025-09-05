@@ -50,7 +50,14 @@ public class McpClientService : IMcpClientService
                 new KeyValuePair<string, string>("scope", _config.Scope)
             });
 
-            var response = await _httpClient.PostAsync(_config.TokenEndpoint, tokenRequest);
+            // Replace {tenant-id} placeholder in TokenEndpoint if TenantId is provided
+            var tokenEndpoint = _config.TokenEndpoint;
+            if (!string.IsNullOrEmpty(_config.TenantId) && tokenEndpoint.Contains("{tenant-id}"))
+            {
+                tokenEndpoint = tokenEndpoint.Replace("{tenant-id}", _config.TenantId);
+            }
+
+            var response = await _httpClient.PostAsync(tokenEndpoint, tokenRequest);
             response.EnsureSuccessStatusCode();
 
             var content = await response.Content.ReadAsStringAsync();
@@ -65,7 +72,13 @@ public class McpClientService : IMcpClientService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to obtain access token from {TokenEndpoint}", _config.TokenEndpoint);
+            // Use the resolved token endpoint in the error message
+            var tokenEndpoint = _config.TokenEndpoint;
+            if (!string.IsNullOrEmpty(_config.TenantId) && tokenEndpoint.Contains("{tenant-id}"))
+            {
+                tokenEndpoint = tokenEndpoint.Replace("{tenant-id}", _config.TenantId);
+            }
+            _logger.LogError(ex, "Failed to obtain access token from {TokenEndpoint}", tokenEndpoint);
             throw;
         }
     }
