@@ -41,7 +41,7 @@ public static class McpServerExtensions
         endpoints.MapPost("/mcp/tools/{toolName}", async (string toolName, HttpContext context, McpServerRegistry registry) =>
         {
             // Check for required scope
-            if (!context.User.HasClaim("scope", "mcp:tools"))
+            if (!context.User.HasClaim("roles", "GetAlerts"))
             {
                 return Results.Forbid();
             }
