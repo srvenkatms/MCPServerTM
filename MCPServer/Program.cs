@@ -79,8 +79,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization(options =>
 {
-    options.AddPolicy("McpTools", policy =>
-        policy.RequireClaim("scope", "mcp:tools"));
+    options.AddPolicy("GetAlertsRole", policy =>
+        policy.RequireClaim("roles", "GetAlerts"));
 });
 
 // Add MCP Server services
@@ -111,10 +111,10 @@ if (app.Environment.IsDevelopment())
             var token = authHeader["Bearer ".Length..].Trim();
             if (token == "dev-token-123")
             {
-                // Create a development identity with the required claim
+                // Create a development identity with the required role claim
                 var claims = new List<System.Security.Claims.Claim>
                 {
-                    new System.Security.Claims.Claim("scope", "mcp:tools")
+                    new System.Security.Claims.Claim("roles", "GetAlerts")
                 };
                 var identity = new System.Security.Claims.ClaimsIdentity(claims, "DevToken");
                 context.User = new System.Security.Claims.ClaimsPrincipal(identity);
@@ -137,7 +137,7 @@ app.MapGet("/.well-known/oauth-authorization-server", (IConfiguration config) =>
         token_endpoint = $"{authority}/oauth2/v2.0/token",
         userinfo_endpoint = $"{authority}/oidc/userinfo",
         jwks_uri = $"{authority}/discovery/v2.0/keys",
-        scopes_supported = new[] { "mcp:tools", "openid", "profile" },
+        roles_supported = new[] { "GetAlerts" },
         response_types_supported = new[] { "code", "token" },
         grant_types_supported = new[] { "authorization_code", "client_credentials" },
         token_endpoint_auth_methods_supported = new[] { "client_secret_basic", "client_secret_post" }
@@ -157,7 +157,7 @@ app.MapGet("/mcp/info", () =>
         authentication = new
         {
             type = "oauth2",
-            required_scopes = new[] { "mcp:tools" }
+            required_roles = new[] { "GetAlerts" }
         },
         capabilities = new
         {
@@ -187,7 +187,7 @@ if (app.Environment.IsDevelopment())
             access_token = "dev-token-123",
             token_type = "Bearer",
             expires_in = 3600,
-            scope = "mcp:tools"
+            roles = new[] { "GetAlerts" }
         });
     }).WithTags("Development");
 }
