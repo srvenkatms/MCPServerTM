@@ -64,25 +64,70 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 builder.Configuration["EntraId:Authority"]?.TrimEnd('/'),
                 builder.Configuration["EntraId:Authority"]?.Replace("login.microsoftonline.com", "sts.windows.net")?.TrimEnd('/') + "/",
                 builder.Configuration["EntraId:Authority"]?.Replace("login.microsoftonline.com", "sts.windows.net")?.TrimEnd('/')
-            }.Where(i => !string.IsNullOrEmpty(i)).ToArray()
+            }.Where(i => !string.IsNullOrEmpty(i)).ToArray(),
+            
+            // Map role claims properly for Azure AD
+            RoleClaimType = "roles"
+        };
+        
+        // Add event handlers for debugging JWT validation
+        options.Events = new Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents
+        {
+            OnAuthenticationFailed = context =>
+            {
+                if (builder.Environment.IsDevelopment())
+                {
+                    Console.WriteLine($"JWT Authentication failed: {context.Exception}");
+                }
+                return Task.CompletedTask;
+            },
+            OnTokenValidated = context =>
+            {
+                if (builder.Environment.IsDevelopment())
+                {
+                    Console.WriteLine("JWT Token validated successfully");
+                    Console.WriteLine($"Claims count: {context.Principal?.Claims?.Count() ?? 0}");
+                    foreach (var claim in context.Principal?.Claims ?? Enumerable.Empty<System.Security.Claims.Claim>())
+                    {
+                        Console.WriteLine($"  {claim.Type}: {claim.Value}");
+                    }
+                }
+                return Task.CompletedTask;
+            },
+            OnChallenge = context =>
+            {
+                if (builder.Environment.IsDevelopment())
+                {
+                    Console.WriteLine($"JWT Challenge: {context.Error} - {context.ErrorDescription}");
+                }
+                return Task.CompletedTask;
+            },
+            OnForbidden = context =>
+            {
+                if (builder.Environment.IsDevelopment())
+                {
+                    Console.WriteLine("JWT Forbidden");
+                }
+                return Task.CompletedTask;
+            }
         };
         
         // In development, accept any bearer token for testing
         if (builder.Environment.IsDevelopment())
         {
-            options.Events = new Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents
+            // Keep existing development override but add logging
+            var originalOnTokenValidated = options.Events.OnTokenValidated;
+            options.Events.OnTokenValidated = async context =>
             {
-                OnTokenValidated = context =>
+                await originalOnTokenValidated(context);
+                // For development, create a basic identity with the required claim
+                var claims = new List<System.Security.Claims.Claim>
                 {
-                    // For development, create a basic identity with the required claim
-                    var claims = new List<System.Security.Claims.Claim>
-                    {
-                        new System.Security.Claims.Claim("scope", "mcp:tools")
-                    };
-                    var identity = new System.Security.Claims.ClaimsIdentity(claims, "Bearer");
-                    context.Principal = new System.Security.Claims.ClaimsPrincipal(identity);
-                    return Task.CompletedTask;
-                }
+                    new System.Security.Claims.Claim("scope", "mcp:tools")
+                };
+                var identity = new System.Security.Claims.ClaimsIdentity(claims, "Bearer");
+                context.Principal = new System.Security.Claims.ClaimsPrincipal(identity);
+                Console.WriteLine("Development mode: Overriding token validation");
             };
         }
     });
