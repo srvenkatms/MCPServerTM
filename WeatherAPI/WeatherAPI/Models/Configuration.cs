@@ -43,3 +43,12 @@ public class WeatherPromptsConfig
     
     public string AlertsTemplate { get; set; } = string.Empty;
 }
+
+public class RetryConfig
+{
+    public int MaxRetries { get; set; } = 3;
+    
+    public int DelayMilliseconds { get; set; } = 1000;
+    
+    public bool UseExponentialBackoff { get; set; } = true;
+}

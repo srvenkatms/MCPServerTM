@@ -57,8 +57,17 @@ public class McpClientService : IMcpClientService
                 tokenEndpoint = tokenEndpoint.Replace("{tenant-id}", _config.TenantId);
             }
 
+            _logger.LogInformation("Requesting access token from {TokenEndpoint}", tokenEndpoint);
+            
             var response = await _httpClient.PostAsync(tokenEndpoint, tokenRequest);
-            response.EnsureSuccessStatusCode();
+            
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogError("Token request failed with status {StatusCode}. Response: {Content}", 
+                    response.StatusCode, errorContent);
+                response.EnsureSuccessStatusCode(); // This will throw with the details above
+            }
 
             var content = await response.Content.ReadAsStringAsync();
             var tokenResponse = JsonSerializer.Deserialize<JsonElement>(content);
@@ -67,7 +76,7 @@ public class McpClientService : IMcpClientService
             var expiresIn = tokenResponse.GetProperty("expires_in").GetInt32();
             _tokenExpiry = DateTime.UtcNow.AddSeconds(expiresIn - 60); // Refresh 1 minute early
 
-            _logger.LogInformation("Successfully obtained access token");
+            _logger.LogInformation("Successfully obtained access token, expires in {ExpiresIn} seconds", expiresIn);
             return _accessToken;
         }
         catch (Exception ex)
@@ -111,17 +120,42 @@ public class McpClientService : IMcpClientService
             var payload = new { state = state, city = city };
             var request = await CreateAuthenticatedRequestAsync("mcp/tools/getcurrentweather", HttpMethod.Post, payload);
             
+            _logger.LogInformation("Sending weather request to MCP server: {Url}", request.RequestUri);
             var response = await _httpClient.SendAsync(request);
-            response.EnsureSuccessStatusCode();
+            
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogError("MCP server returned {StatusCode} for current weather request. Response: {Content}", 
+                    response.StatusCode, errorContent);
+                return null;
+            }
 
             var content = await response.Content.ReadAsStringAsync();
+            _logger.LogDebug("Received weather response from MCP server: {Content}", content);
+            
             var weatherData = JsonSerializer.Deserialize<JsonElement>(content);
-
             return MapToCurrentWeatherInfo(weatherData);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "Network error connecting to MCP server for current weather. State: {State}, City: {City}, BaseUrl: {BaseUrl}", 
+                state, city, _config.BaseUrl);
+            return null;
+        }
+        catch (TaskCanceledException ex)
+        {
+            _logger.LogError(ex, "Timeout connecting to MCP server for current weather. State: {State}, City: {City}", state, city);
+            return null;
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogError(ex, "Failed to parse weather response from MCP server. State: {State}, City: {City}", state, city);
+            return null;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to get current weather for {State}, {City}", state, city);
+            _logger.LogError(ex, "Unexpected error getting current weather for {State}, {City}", state, city);
             return null;
         }
     }
@@ -133,17 +167,42 @@ public class McpClientService : IMcpClientService
             var payload = new { state = state, days = days };
             var request = await CreateAuthenticatedRequestAsync("mcp/tools/getweatherforecast", HttpMethod.Post, payload);
             
+            _logger.LogInformation("Sending forecast request to MCP server: {Url}", request.RequestUri);
             var response = await _httpClient.SendAsync(request);
-            response.EnsureSuccessStatusCode();
+            
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogError("MCP server returned {StatusCode} for forecast request. Response: {Content}", 
+                    response.StatusCode, errorContent);
+                return null;
+            }
 
             var content = await response.Content.ReadAsStringAsync();
+            _logger.LogDebug("Received forecast response from MCP server: {Content}", content);
+            
             var forecastData = JsonSerializer.Deserialize<JsonElement>(content);
-
             return MapToWeatherForecastInfo(forecastData);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "Network error connecting to MCP server for forecast. State: {State}, BaseUrl: {BaseUrl}", 
+                state, _config.BaseUrl);
+            return null;
+        }
+        catch (TaskCanceledException ex)
+        {
+            _logger.LogError(ex, "Timeout connecting to MCP server for forecast. State: {State}", state);
+            return null;
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogError(ex, "Failed to parse forecast response from MCP server. State: {State}", state);
+            return null;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to get weather forecast for {State}", state);
+            _logger.LogError(ex, "Unexpected error getting weather forecast for {State}", state);
             return null;
         }
     }
@@ -155,17 +214,42 @@ public class McpClientService : IMcpClientService
             var payload = new { state = state };
             var request = await CreateAuthenticatedRequestAsync("mcp/tools/getweatheralerts", HttpMethod.Post, payload);
             
+            _logger.LogInformation("Sending alerts request to MCP server: {Url}", request.RequestUri);
             var response = await _httpClient.SendAsync(request);
-            response.EnsureSuccessStatusCode();
+            
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogError("MCP server returned {StatusCode} for alerts request. Response: {Content}", 
+                    response.StatusCode, errorContent);
+                return null;
+            }
 
             var content = await response.Content.ReadAsStringAsync();
+            _logger.LogDebug("Received alerts response from MCP server: {Content}", content);
+            
             var alertsData = JsonSerializer.Deserialize<JsonElement>(content);
-
             return MapToWeatherAlertInfo(alertsData);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "Network error connecting to MCP server for alerts. State: {State}, BaseUrl: {BaseUrl}", 
+                state, _config.BaseUrl);
+            return null;
+        }
+        catch (TaskCanceledException ex)
+        {
+            _logger.LogError(ex, "Timeout connecting to MCP server for alerts. State: {State}", state);
+            return null;
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogError(ex, "Failed to parse alerts response from MCP server. State: {State}", state);
+            return null;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to get weather alerts for {State}", state);
+            _logger.LogError(ex, "Unexpected error getting weather alerts for {State}", state);
             return null;
         }
     }

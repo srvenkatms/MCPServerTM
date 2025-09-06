@@ -1,6 +1,9 @@
 using WeatherAPI.Models;
 using WeatherAPI.Services;
 using System.Reflection;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+using System.Text.Json;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -32,6 +35,8 @@ builder.Services.Configure<McpServerConfig>(
     builder.Configuration.GetSection("McpServer"));
 builder.Services.Configure<WeatherPromptsConfig>(
     builder.Configuration.GetSection("WeatherPrompts"));
+builder.Services.Configure<RetryConfig>(
+    builder.Configuration.GetSection("Retry"));
 
 // Register configuration instances for dependency injection
 builder.Services.AddSingleton(provider => 
@@ -49,15 +54,39 @@ builder.Services.AddSingleton(provider =>
         .GetSection("WeatherPrompts")
         .Get<WeatherPromptsConfig>() ?? new WeatherPromptsConfig());
 
+builder.Services.AddSingleton(provider => 
+    provider.GetRequiredService<IConfiguration>()
+        .GetSection("Retry")
+        .Get<RetryConfig>() ?? new RetryConfig());
+
 // Register HTTP clients
-builder.Services.AddHttpClient<IMcpClientService, McpClientService>();
+builder.Services.AddHttpClient<McpClientService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(30); // 30 second timeout
+});
+builder.Services.AddHttpClient<McpServerHealthCheck>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(10); // 10 second timeout for health checks
+});
+
+// Register MCP client service with resilient wrapper
+builder.Services.AddScoped<McpClientService>();
+builder.Services.AddScoped<IMcpClientService>(provider =>
+{
+    var innerService = provider.GetRequiredService<McpClientService>();
+    var retryConfig = provider.GetRequiredService<RetryConfig>();
+    var logger = provider.GetRequiredService<ILogger<ResilientMcpClientService>>();
+    return new ResilientMcpClientService(innerService, retryConfig, logger);
+});
 
 // Register services
 builder.Services.AddScoped<IAgentFoundryService, AgentFoundryService>();
 builder.Services.AddScoped<IWeatherService, WeatherService>();
 
 // Add health checks
-builder.Services.AddHealthChecks();
+builder.Services.AddHealthChecks()
+    .AddCheck<ConfigurationValidator>("configuration")
+    .AddCheck<McpServerHealthCheck>("mcp-server");
 
 // Add CORS support for development
 builder.Services.AddCors(options =>
@@ -90,8 +119,35 @@ app.UseAuthorization();
 
 app.MapControllers();
 
-// Add health check endpoint
-app.MapHealthChecks("/health");
+// Add health check endpoint with details
+app.MapHealthChecks("/health", new HealthCheckOptions
+{
+    ResponseWriter = async (context, report) =>
+    {
+        context.Response.ContentType = "application/json";
+        
+        var response = new
+        {
+            status = report.Status.ToString(),
+            timestamp = DateTime.UtcNow,
+            service = "Weather API",
+            checks = report.Entries.Select(entry => new
+            {
+                name = entry.Key,
+                status = entry.Value.Status.ToString(),
+                description = entry.Value.Description,
+                duration = entry.Value.Duration.TotalMilliseconds,
+                exception = entry.Value.Exception?.Message
+            })
+        };
+        
+        await context.Response.WriteAsync(System.Text.Json.JsonSerializer.Serialize(response, new JsonSerializerOptions 
+        { 
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            WriteIndented = true
+        }));
+    }
+});
 
 // Add basic info endpoint
 app.MapGet("/", () => new
