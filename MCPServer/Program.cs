@@ -50,11 +50,14 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         // options.Audience = builder.Configuration["EntraId:Audience"]; // Commented out audience check
         options.TokenValidationParameters = new TokenValidationParameters
         {
-            // ValidateIssuer = !builder.Environment.IsDevelopment(), // Skip validation in dev
-            ValidateAudience = false, // Commented out audience validation
-            // ValidateLifetime = !builder.Environment.IsDevelopment(), // Skip validation in dev
-            // ValidateIssuerSigningKey = !builder.Environment.IsDevelopment(), // Skip validation in dev
-            ClockSkew = TimeSpan.FromMinutes(5) // Allow 5 minutes clock skew for Azure AD
+            ValidateIssuer = !builder.Environment.IsDevelopment(), // Skip validation in dev
+            ValidateAudience = false, // Audience validation disabled  
+            ValidateLifetime = !builder.Environment.IsDevelopment(), // Skip validation in dev
+            ValidateIssuerSigningKey = !builder.Environment.IsDevelopment(), // Skip validation in dev
+            ClockSkew = TimeSpan.FromMinutes(5), // Allow 5 minutes clock skew for Azure AD
+            // Note: Azure AD tokens may use https://sts.windows.net/{tenant-id}/ as issuer
+            // while Authority is configured as https://login.microsoftonline.com/{tenant-id}
+            // For production, consider configuring ValidIssuers to accept both patterns if needed
         };
         
         // In development, accept any bearer token for testing
