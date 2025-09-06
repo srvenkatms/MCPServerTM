@@ -56,14 +56,20 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
             ClockSkew = TimeSpan.FromMinutes(5), // Allow 5 minutes clock skew for Azure AD
+            
             // Azure AD tokens use https://sts.windows.net/{tenant-id}/ as issuer
-            // while Authority is configured as https://login.microsoftonline.com/{tenant-id}
-            // Accept both issuer formats
+            // while Authority is configured as https://login.microsoftonline.com/{tenant-id}/v2.0/
+            // We need to explicitly accept the sts.windows.net issuer format
             ValidIssuers = new[]
             {
-                builder.Configuration["EntraId:Authority"]?.TrimEnd('/'),
-                builder.Configuration["EntraId:Authority"]?.Replace("login.microsoftonline.com", "sts.windows.net")?.TrimEnd('/') + "/",
-                builder.Configuration["EntraId:Authority"]?.Replace("login.microsoftonline.com", "sts.windows.net")?.TrimEnd('/')
+                // Extract tenant ID from authority and create sts.windows.net issuer
+                builder.Configuration["EntraId:Authority"]?
+                    .Replace("https://login.microsoftonline.com/", "https://sts.windows.net/")
+                    .Replace("/v2.0/", "/")
+                    .TrimEnd('/') + "/",
+                    
+                // Also accept the authority as-is in case the format changes
+                builder.Configuration["EntraId:Authority"]?.TrimEnd('/')
             }.Where(i => !string.IsNullOrEmpty(i)).ToArray(),
             
             // Map role claims properly for Azure AD
