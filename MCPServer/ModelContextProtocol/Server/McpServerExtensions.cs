@@ -53,7 +53,7 @@ public static class McpServerExtensions
                     {
                         foreach (var claim in context.User.Claims)
                         {
-                            logger.LogInformation("Claim: {Type} = {Value}", claim.Type, claim.Value);
+                            logger.LogInformation("Claim: {Type} = {Value}", claim.Type, claim.Value ?? "null");
                         }
                     }
                 }
@@ -213,7 +213,7 @@ public class McpServerRegistry
         }
 
         // Fallback to string representation
-        return element.ToString();
+        return element.ToString() ?? "";
     }
 
     private static object GetParameterInfo(MethodInfo method)

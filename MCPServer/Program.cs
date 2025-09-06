@@ -190,14 +190,15 @@ app.UseAuthorization();
 // OAuth resource metadata endpoint for client discovery
 app.MapGet("/.well-known/oauth-authorization-server", (IConfiguration config) =>
 {
-    var authority = config["EntraId:Authority"];
+    var authority = config["EntraId:Authority"]?.TrimEnd('/');
+    var baseAuthority = authority?.Replace("/v2.0", ""); // Remove v2.0 for endpoint construction
     return Results.Ok(new
     {
         issuer = authority,
-        authorization_endpoint = $"{authority}/oauth2/v2.0/authorize",
-        token_endpoint = $"{authority}/oauth2/v2.0/token",
-        userinfo_endpoint = $"{authority}/oidc/userinfo",
-        jwks_uri = $"{authority}/discovery/v2.0/keys",
+        authorization_endpoint = $"{baseAuthority}/oauth2/v2.0/authorize",
+        token_endpoint = $"{baseAuthority}/oauth2/v2.0/token",
+        userinfo_endpoint = $"{baseAuthority}/oidc/userinfo",
+        jwks_uri = $"{baseAuthority}/discovery/v2.0/keys",
         roles_supported = new[] { "GetAlerts" },
         response_types_supported = new[] { "code", "token" },
         grant_types_supported = new[] { "authorization_code", "client_credentials" },
