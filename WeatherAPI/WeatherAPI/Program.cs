@@ -55,6 +55,7 @@ builder.Services.AddHttpClient<IMcpClientService, McpClientService>();
 // Register services
 builder.Services.AddScoped<IAgentFoundryService, AgentFoundryService>();
 builder.Services.AddScoped<IWeatherService, WeatherService>();
+builder.Services.AddScoped<IConfigurationValidationService, ConfigurationValidationService>();
 
 // Add health checks
 builder.Services.AddHealthChecks();
@@ -71,6 +72,25 @@ builder.Services.AddCors(options =>
 });
 
 var app = builder.Build();
+
+// Validate configuration on startup
+try
+{
+    using var scope = app.Services.CreateScope();
+    var configValidation = scope.ServiceProvider.GetRequiredService<IConfigurationValidationService>();
+    var isValid = await configValidation.ValidateConfigurationAsync();
+    
+    if (!isValid)
+    {
+        var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+        logger.LogWarning("Application started with invalid configuration. Check /api/diagnostics/config for details.");
+    }
+}
+catch (Exception ex)
+{
+    var logger = app.Services.GetRequiredService<ILogger<Program>>();
+    logger.LogError(ex, "Failed to validate configuration on startup");
+}
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
@@ -107,7 +127,13 @@ app.MapGet("/", () => new
         forecast = "/api/weather/{city}/forecast",
         alerts = "/api/weather/{city}/alerts",
         health = "/health",
-        swagger = "/swagger"
+        swagger = "/swagger",
+        diagnostics = new
+        {
+            config = "/api/diagnostics/config",
+            health = "/api/diagnostics/health",
+            testOAuth = "/api/diagnostics/test-oauth"
+        }
     }
 }).WithTags("Info");
 

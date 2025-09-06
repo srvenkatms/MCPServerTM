@@ -40,6 +40,24 @@ public class McpClientService : IMcpClientService
             return string.Empty;
         }
 
+        // Validate required configuration before making request
+        if (string.IsNullOrEmpty(_config.ClientId))
+        {
+            throw new InvalidOperationException("ClientId is required for authentication but not configured");
+        }
+        if (string.IsNullOrEmpty(_config.ClientSecret))
+        {
+            throw new InvalidOperationException("ClientSecret is required for authentication but not configured");
+        }
+        if (string.IsNullOrEmpty(_config.TokenEndpoint))
+        {
+            throw new InvalidOperationException("TokenEndpoint is required for authentication but not configured");
+        }
+        if (string.IsNullOrEmpty(_config.Scope))
+        {
+            throw new InvalidOperationException("Scope is required for authentication but not configured");
+        }
+
         try
         {
             var tokenRequest = new FormUrlEncodedContent(new[]
@@ -57,8 +75,33 @@ public class McpClientService : IMcpClientService
                 tokenEndpoint = tokenEndpoint.Replace("{tenant-id}", _config.TenantId);
             }
 
+            _logger.LogDebug("Requesting OAuth token from endpoint: {TokenEndpoint} with ClientId: {ClientId} and Scope: {Scope}", 
+                tokenEndpoint, _config.ClientId, _config.Scope);
+
             var response = await _httpClient.PostAsync(tokenEndpoint, tokenRequest);
-            response.EnsureSuccessStatusCode();
+            
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogError("OAuth token request failed with status {StatusCode} ({ReasonPhrase}). Response: {ErrorContent}", 
+                    response.StatusCode, response.ReasonPhrase, errorContent);
+                
+                // Try to parse error details if it's JSON
+                try
+                {
+                    var errorJson = JsonSerializer.Deserialize<JsonElement>(errorContent);
+                    if (errorJson.TryGetProperty("error", out var errorCode) && errorJson.TryGetProperty("error_description", out var errorDesc))
+                    {
+                        throw new HttpRequestException($"OAuth error: {errorCode.GetString()} - {errorDesc.GetString()}. Status: {response.StatusCode}");
+                    }
+                }
+                catch (JsonException)
+                {
+                    // If not JSON, just throw with the raw content
+                }
+                
+                throw new HttpRequestException($"Failed to obtain OAuth token. Status: {response.StatusCode}, Response: {errorContent}");
+            }
 
             var content = await response.Content.ReadAsStringAsync();
             var tokenResponse = JsonSerializer.Deserialize<JsonElement>(content);
@@ -67,7 +110,7 @@ public class McpClientService : IMcpClientService
             var expiresIn = tokenResponse.GetProperty("expires_in").GetInt32();
             _tokenExpiry = DateTime.UtcNow.AddSeconds(expiresIn - 60); // Refresh 1 minute early
 
-            _logger.LogInformation("Successfully obtained access token");
+            _logger.LogInformation("Successfully obtained access token, expires in {ExpiresIn} seconds", expiresIn);
             return _accessToken;
         }
         catch (Exception ex)
@@ -78,7 +121,9 @@ public class McpClientService : IMcpClientService
             {
                 tokenEndpoint = tokenEndpoint.Replace("{tenant-id}", _config.TenantId);
             }
-            _logger.LogError(ex, "Failed to obtain access token from {TokenEndpoint}", tokenEndpoint);
+            
+            _logger.LogError(ex, "Failed to obtain access token from {TokenEndpoint}. Config - ClientId: {ClientId}, Scope: {Scope}, TenantId: {TenantId}", 
+                tokenEndpoint, _config.ClientId, _config.Scope, _config.TenantId ?? "null");
             throw;
         }
     }
