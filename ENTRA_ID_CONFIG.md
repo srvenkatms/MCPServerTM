@@ -43,10 +43,39 @@ options.TokenValidationParameters.ClockSkew = TimeSpan.FromMinutes(5); // Allow 
   "AllowedHosts": "*",
   "EntraId": {
     "Authority": "https://login.microsoftonline.com/{your-tenant-id}",
-    "Audience": "api://your-app-registration-id"
+    "Audience": "api://your-app-registration-id",
+    "SkipSignatureValidation": false
   }
 }
 ```
+
+## Skip JWT Signature Validation (For Network-Restricted Environments)
+
+In production environments where the server cannot access Microsoft's public key endpoints (due to network restrictions, firewalls, or offline deployments), you can skip JWT signature validation while still validating other claims:
+
+⚠️ **SECURITY WARNING**: Only use this feature in secure, network-isolated environments where you trust the token source.
+
+```json
+{
+  "EntraId": {
+    "Authority": "https://login.microsoftonline.com/{your-tenant-id}",
+    "Audience": "api://your-app-registration-id",
+    "SkipSignatureValidation": true
+  }
+}
+```
+
+When `SkipSignatureValidation` is set to `true`:
+- JWT signature validation is bypassed
+- All other validations still occur (issuer, audience, lifetime, role claims)
+- The server can accept valid Entra ID tokens without internet access to Microsoft's JWKS endpoint
+- Logs will show "Signature validation: SKIPPED" to indicate this mode is active
+
+This feature is ideal for:
+- Air-gapped environments
+- Deployments behind restrictive firewalls
+- Container environments with limited internet access
+- Development/testing environments with network restrictions
 
 ## Required Entra ID App Registration Setup
 

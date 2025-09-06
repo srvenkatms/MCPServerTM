@@ -42,6 +42,8 @@ builder.Services.AddSwaggerGen(c =>
 });
 
 // Configure JWT Bearer Authentication for Entra ID
+var skipSignatureValidation = builder.Configuration.GetValue<bool>("EntraId:SkipSignatureValidation");
+
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -54,7 +56,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateAudience = true,
             ValidAudience = builder.Configuration["EntraId:Audience"],
             ValidateLifetime = true,
-            ValidateIssuerSigningKey = true,
+            ValidateIssuerSigningKey = !skipSignatureValidation, // Skip signature validation if configured
+            RequireSignedTokens = !skipSignatureValidation, // Don't require signed tokens if skipping validation
             ClockSkew = TimeSpan.FromMinutes(5), // Allow 5 minutes clock skew for Azure AD
             
             // Azure AD tokens use https://sts.windows.net/{tenant-id}/ as issuer
@@ -76,12 +79,32 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             RoleClaimType = "roles"
         };
         
+        // If signature validation is skipped, we need to provide a key resolver that doesn't validate
+        if (skipSignatureValidation)
+        {
+            options.TokenValidationParameters.IssuerSigningKeyResolver = (token, securityToken, kid, parameters) =>
+            {
+                // Return a dummy key that will pass validation
+                return new List<SecurityKey> { new SymmetricSecurityKey(System.Text.Encoding.UTF8.GetBytes("dummy-key-for-skipped-validation-32-chars-long-enough")) };
+            };
+            
+            // Disable metadata retrieval since we're not validating signatures
+            options.RequireHttpsMetadata = false;
+            options.MetadataAddress = null;
+            // Additional settings to bypass signature validation
+            options.TokenValidationParameters.SignatureValidator = (token, parameters) =>
+            {
+                // Return the token as-is without validating signature
+                return new Microsoft.IdentityModel.JsonWebTokens.JsonWebToken(token);
+            };
+        }
+        
         // Add event handlers for debugging JWT validation
         options.Events = new Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents
         {
             OnAuthenticationFailed = context =>
             {
-                if (builder.Environment.IsDevelopment())
+                if (builder.Environment.IsDevelopment() || skipSignatureValidation)
                 {
                     Console.WriteLine($"JWT Authentication failed: {context.Exception}");
                 }
@@ -89,9 +112,9 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             },
             OnTokenValidated = context =>
             {
-                if (builder.Environment.IsDevelopment())
+                if (builder.Environment.IsDevelopment() || skipSignatureValidation)
                 {
-                    Console.WriteLine("JWT Token validated successfully");
+                    Console.WriteLine($"JWT Token validated successfully (Signature validation: {(!skipSignatureValidation ? "enabled" : "SKIPPED")})");
                     Console.WriteLine($"Claims count: {context.Principal?.Claims?.Count() ?? 0}");
                     foreach (var claim in context.Principal?.Claims ?? Enumerable.Empty<System.Security.Claims.Claim>())
                     {
@@ -102,7 +125,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             },
             OnChallenge = context =>
             {
-                if (builder.Environment.IsDevelopment())
+                if (builder.Environment.IsDevelopment() || skipSignatureValidation)
                 {
                     Console.WriteLine($"JWT Challenge: {context.Error} - {context.ErrorDescription}");
                 }
@@ -110,7 +133,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             },
             OnForbidden = context =>
             {
-                if (builder.Environment.IsDevelopment())
+                if (builder.Environment.IsDevelopment() || skipSignatureValidation)
                 {
                     Console.WriteLine("JWT Forbidden");
                 }
@@ -119,7 +142,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
         
         // In development, accept any bearer token for testing
-        if (builder.Environment.IsDevelopment())
+        if (builder.Environment.IsDevelopment() && !skipSignatureValidation)
         {
             // Keep existing development override but add logging
             var originalOnTokenValidated = options.Events.OnTokenValidated;
