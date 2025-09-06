@@ -148,10 +148,13 @@ All configurable elements are in `appsettings.json`:
     "ClientId": "your-client-id",
     "ClientSecret": "your-client-secret",
     "TokenEndpoint": "https://login.microsoftonline.com/{tenant-id}/oauth2/v2.0/token",
-    "Scope": "api://your-app-registration/mcp:tools"
+    "TenantId": "{tenant-id}",
+    "Scope": "api://your-app-registration/.default"
   }
 }
 ```
+
+**Note**: For Azure AD OAuth2 authentication, use `/.default` scope instead of `/mcp:tools` to ensure proper token acquisition.
 
 ### Weather Prompt Templates
 ```json
@@ -188,6 +191,25 @@ For production deployment:
 2. Set up proper MCP Server authentication with Entra ID
 3. Update configuration files with production settings
 4. Use secure secrets management for API keys and connection strings
+
+### Environment Variable Overrides
+
+For production deployments, you can override configuration values using environment variables. Use double underscores (`__`) to represent nested configuration sections:
+
+```bash
+# MCP Server Configuration
+export McpServer__BaseUrl="https://your-mcp-server.azurecontainerapps.io"
+export McpServer__ClientId="your-client-id"
+export McpServer__ClientSecret="your-client-secret"
+export McpServer__TenantId="your-tenant-id"
+export McpServer__Scope="api://your-app-registration/.default"
+
+# Agent Foundry Configuration  
+export AgentFoundry__Endpoint="https://your-ai-foundry-endpoint.openai.azure.com/"
+export AgentFoundry__ApiKey="your-api-key"
+```
+
+This approach allows you to keep sensitive values out of configuration files while maintaining flexibility for different deployment environments.
 
 ## Error Handling
 
