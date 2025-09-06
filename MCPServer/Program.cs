@@ -56,33 +56,84 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
             ClockSkew = TimeSpan.FromMinutes(5), // Allow 5 minutes clock skew for Azure AD
+            
             // Azure AD tokens use https://sts.windows.net/{tenant-id}/ as issuer
-            // while Authority is configured as https://login.microsoftonline.com/{tenant-id}
-            // Accept both issuer formats
+            // while Authority is configured as https://login.microsoftonline.com/{tenant-id}/v2.0/
+            // We need to explicitly accept the sts.windows.net issuer format
             ValidIssuers = new[]
             {
-                builder.Configuration["EntraId:Authority"]?.TrimEnd('/'),
-                builder.Configuration["EntraId:Authority"]?.Replace("login.microsoftonline.com", "sts.windows.net")?.TrimEnd('/') + "/",
-                builder.Configuration["EntraId:Authority"]?.Replace("login.microsoftonline.com", "sts.windows.net")?.TrimEnd('/')
-            }.Where(i => !string.IsNullOrEmpty(i)).ToArray()
+                // Extract tenant ID from authority and create sts.windows.net issuer
+                builder.Configuration["EntraId:Authority"]?
+                    .Replace("https://login.microsoftonline.com/", "https://sts.windows.net/")
+                    .Replace("/v2.0/", "/")
+                    .TrimEnd('/') + "/",
+                    
+                // Also accept the authority as-is in case the format changes
+                builder.Configuration["EntraId:Authority"]?.TrimEnd('/')
+            }.Where(i => !string.IsNullOrEmpty(i)).ToArray(),
+            
+            // Map role claims properly for Azure AD
+            RoleClaimType = "roles"
+        };
+        
+        // Add event handlers for debugging JWT validation
+        options.Events = new Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents
+        {
+            OnAuthenticationFailed = context =>
+            {
+                if (builder.Environment.IsDevelopment())
+                {
+                    Console.WriteLine($"JWT Authentication failed: {context.Exception}");
+                }
+                return Task.CompletedTask;
+            },
+            OnTokenValidated = context =>
+            {
+                if (builder.Environment.IsDevelopment())
+                {
+                    Console.WriteLine("JWT Token validated successfully");
+                    Console.WriteLine($"Claims count: {context.Principal?.Claims?.Count() ?? 0}");
+                    foreach (var claim in context.Principal?.Claims ?? Enumerable.Empty<System.Security.Claims.Claim>())
+                    {
+                        Console.WriteLine($"  {claim.Type}: {claim.Value}");
+                    }
+                }
+                return Task.CompletedTask;
+            },
+            OnChallenge = context =>
+            {
+                if (builder.Environment.IsDevelopment())
+                {
+                    Console.WriteLine($"JWT Challenge: {context.Error} - {context.ErrorDescription}");
+                }
+                return Task.CompletedTask;
+            },
+            OnForbidden = context =>
+            {
+                if (builder.Environment.IsDevelopment())
+                {
+                    Console.WriteLine("JWT Forbidden");
+                }
+                return Task.CompletedTask;
+            }
         };
         
         // In development, accept any bearer token for testing
         if (builder.Environment.IsDevelopment())
         {
-            options.Events = new Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents
+            // Keep existing development override but add logging
+            var originalOnTokenValidated = options.Events.OnTokenValidated;
+            options.Events.OnTokenValidated = async context =>
             {
-                OnTokenValidated = context =>
+                await originalOnTokenValidated(context);
+                // For development, create a basic identity with the required claim
+                var claims = new List<System.Security.Claims.Claim>
                 {
-                    // For development, create a basic identity with the required claim
-                    var claims = new List<System.Security.Claims.Claim>
-                    {
-                        new System.Security.Claims.Claim("scope", "mcp:tools")
-                    };
-                    var identity = new System.Security.Claims.ClaimsIdentity(claims, "Bearer");
-                    context.Principal = new System.Security.Claims.ClaimsPrincipal(identity);
-                    return Task.CompletedTask;
-                }
+                    new System.Security.Claims.Claim("scope", "mcp:tools")
+                };
+                var identity = new System.Security.Claims.ClaimsIdentity(claims, "Bearer");
+                context.Principal = new System.Security.Claims.ClaimsPrincipal(identity);
+                Console.WriteLine("Development mode: Overriding token validation");
             };
         }
     });
@@ -139,14 +190,15 @@ app.UseAuthorization();
 // OAuth resource metadata endpoint for client discovery
 app.MapGet("/.well-known/oauth-authorization-server", (IConfiguration config) =>
 {
-    var authority = config["EntraId:Authority"];
+    var authority = config["EntraId:Authority"]?.TrimEnd('/');
+    var baseAuthority = authority?.Replace("/v2.0", ""); // Remove v2.0 for endpoint construction
     return Results.Ok(new
     {
         issuer = authority,
-        authorization_endpoint = $"{authority}/oauth2/v2.0/authorize",
-        token_endpoint = $"{authority}/oauth2/v2.0/token",
-        userinfo_endpoint = $"{authority}/oidc/userinfo",
-        jwks_uri = $"{authority}/discovery/v2.0/keys",
+        authorization_endpoint = $"{baseAuthority}/oauth2/v2.0/authorize",
+        token_endpoint = $"{baseAuthority}/oauth2/v2.0/token",
+        userinfo_endpoint = $"{baseAuthority}/oidc/userinfo",
+        jwks_uri = $"{baseAuthority}/discovery/v2.0/keys",
         roles_supported = new[] { "GetAlerts" },
         response_types_supported = new[] { "code", "token" },
         grant_types_supported = new[] { "authorization_code", "client_credentials" },

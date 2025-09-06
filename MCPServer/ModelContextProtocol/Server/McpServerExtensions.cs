@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -40,8 +42,29 @@ public static class McpServerExtensions
 
         endpoints.MapPost("/mcp/tools/{toolName}", async (string toolName, HttpContext context, McpServerRegistry registry) =>
         {
-            // Check for required scope
-            if (!context.User.HasClaim("roles", "GetAlerts"))
+            // Debug: Log user claims in development
+            if (context.RequestServices.GetService<IWebHostEnvironment>()?.IsDevelopment() == true)
+            {
+                var logger = context.RequestServices.GetService<ILogger<Program>>();
+                if (logger != null)
+                {
+                    logger.LogInformation("User authentication status: {IsAuthenticated}", context.User?.Identity?.IsAuthenticated ?? false);
+                    if (context.User?.Claims != null)
+                    {
+                        foreach (var claim in context.User.Claims)
+                        {
+                            logger.LogInformation("Claim: {Type} = {Value}", claim.Type, claim.Value ?? "null");
+                        }
+                    }
+                }
+            }
+
+            // Check for required role claim - try different claim types that Azure AD might use
+            var hasRoleClaim = context.User.HasClaim("roles", "GetAlerts") ||
+                              context.User.HasClaim("http://schemas.microsoft.com/ws/2008/06/identity/claims/role", "GetAlerts") ||
+                              context.User.HasClaim("role", "GetAlerts");
+
+            if (!hasRoleClaim)
             {
                 return Results.Forbid();
             }
@@ -190,7 +213,7 @@ public class McpServerRegistry
         }
 
         // Fallback to string representation
-        return element.ToString();
+        return element.ToString() ?? "";
     }
 
     private static object GetParameterInfo(MethodInfo method)
