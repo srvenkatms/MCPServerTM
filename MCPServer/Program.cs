@@ -50,10 +50,10 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         // options.Audience = builder.Configuration["EntraId:Audience"]; // Commented out audience check
         options.TokenValidationParameters = new TokenValidationParameters
         {
-            ValidateIssuer = !builder.Environment.IsDevelopment(), // Skip validation in dev
+            // ValidateIssuer = !builder.Environment.IsDevelopment(), // Skip validation in dev
             ValidateAudience = false, // Commented out audience validation
-            ValidateLifetime = !builder.Environment.IsDevelopment(), // Skip validation in dev
-            ValidateIssuerSigningKey = !builder.Environment.IsDevelopment(), // Skip validation in dev
+            // ValidateLifetime = !builder.Environment.IsDevelopment(), // Skip validation in dev
+            // ValidateIssuerSigningKey = !builder.Environment.IsDevelopment(), // Skip validation in dev
             ClockSkew = TimeSpan.FromMinutes(5) // Allow 5 minutes clock skew for Azure AD
         };
         
