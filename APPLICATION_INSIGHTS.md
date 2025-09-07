@@ -80,15 +80,18 @@ Configure Application Insights in `appsettings.json`:
 ```
 
 ### Environment Variables
-You can also configure Application Insights using environment variables:
+You can also configure Application Insights using environment variables (recommended for Azure deployments):
 - `APPLICATIONINSIGHTS_CONNECTION_STRING`: Connection string for Application Insights
 - `APPLICATIONINSIGHTS_INSTRUMENTATION_KEY`: Legacy instrumentation key (deprecated)
 
+The application will automatically check for these standard Azure environment variables first, then fall back to configuration file settings.
+
 ### Azure Configuration
-When running in Azure App Service, Application Insights can be configured through:
+When running in Azure App Service or Azure Container Apps, Application Insights can be configured through:
 1. Azure Portal Application Insights resource
-2. App Service Application Insights extension
-3. Environment variables set by Azure
+2. App Service/Container Apps Application Insights extension
+3. Environment variables set by Azure (automatically uses the standard names above)
+4. Manual environment variable configuration in Azure Container Apps or App Service
 
 ## Usage
 
@@ -157,6 +160,18 @@ Configure appropriate thresholds based on your usage patterns:
 2. Check Azure subscription and resource group permissions
 3. Ensure Application Insights resource is active
 4. Verify network connectivity from deployment environment
+
+### Azure Container Apps Configuration
+If you're not seeing telemetry data in Azure Container Apps:
+1. **Check Environment Variables**: Ensure you're using the standard Azure environment variables:
+   - `APPLICATIONINSIGHTS_CONNECTION_STRING` (preferred)
+   - `APPLICATIONINSIGHTS_INSTRUMENTATION_KEY` (legacy, deprecated)
+2. **Verify Connection String Format**: The connection string should follow this format:
+   ```
+   InstrumentationKey=your-key;IngestionEndpoint=https://your-region.in.applicationinsights.azure.com/;LiveEndpoint=https://your-region.livediagnostics.monitor.azure.com/
+   ```
+3. **Container Apps Settings**: In Azure Container Apps, set the environment variable in the "Environment variables" section of your container app configuration
+4. **Check Application Logs**: Review the container logs for any Application Insights initialization errors
 
 ### Missing Custom Events
 1. Check configuration flags in `appsettings.json`
