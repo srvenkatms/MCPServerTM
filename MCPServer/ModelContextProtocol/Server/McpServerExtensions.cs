@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using MCPServer.Services;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -10,6 +11,7 @@ using System.Reflection;
 using System.ComponentModel;
 using System.Text.Json;
 using System.Threading.Tasks;
+using System.Diagnostics;
 
 namespace ModelContextProtocol.Server;
 
@@ -42,41 +44,66 @@ public static class McpServerExtensions
 
         endpoints.MapPost("/mcp/tools/{toolName}", async (string toolName, HttpContext context, McpServerRegistry registry) =>
         {
-            // Debug: Log user claims in development
-            if (context.RequestServices.GetService<IWebHostEnvironment>()?.IsDevelopment() == true)
+            var stopwatch = Stopwatch.StartNew();
+            var telemetryService = context.RequestServices.GetService<McpTelemetryService>();
+            
+            try
             {
-                var logger = context.RequestServices.GetService<ILogger<Program>>();
-                if (logger != null)
+                // Debug: Log user claims in development
+                if (context.RequestServices.GetService<IWebHostEnvironment>()?.IsDevelopment() == true)
                 {
-                    logger.LogInformation("User authentication status: {IsAuthenticated}", context.User?.Identity?.IsAuthenticated ?? false);
-                    if (context.User?.Claims != null)
+                    var logger = context.RequestServices.GetService<ILogger<Program>>();
+                    if (logger != null)
                     {
-                        foreach (var claim in context.User.Claims)
+                        logger.LogInformation("User authentication status: {IsAuthenticated}", context.User?.Identity?.IsAuthenticated ?? false);
+                        if (context.User?.Claims != null)
                         {
-                            logger.LogInformation("Claim: {Type} = {Value}", claim.Type, claim.Value ?? "null");
+                            foreach (var claim in context.User.Claims)
+                            {
+                                logger.LogInformation("Claim: {Type} = {Value}", claim.Type, claim.Value ?? "null");
+                            }
                         }
                     }
                 }
+
+                // Check for required role claim - try different claim types that Azure AD might use
+                var hasRoleClaim = context.User.HasClaim("roles", "GetAlerts") ||
+                                  context.User.HasClaim("http://schemas.microsoft.com/ws/2008/06/identity/claims/role", "GetAlerts") ||
+                                  context.User.HasClaim("role", "GetAlerts");
+
+                if (!hasRoleClaim)
+                {
+                    telemetryService?.TrackAuthenticationEvent("InsufficientRole", context.User, false, $"Required role 'GetAlerts' not found for tool {toolName}");
+                    return Results.Forbid();
+                }
+
+                using var reader = new StreamReader(context.Request.Body);
+                var body = await reader.ReadToEndAsync();
+                var parameters = string.IsNullOrEmpty(body) 
+                    ? new Dictionary<string, object>() 
+                    : JsonSerializer.Deserialize<Dictionary<string, object>>(body) ?? new Dictionary<string, object>();
+
+                var result = await registry.ExecuteTool(toolName, parameters);
+                stopwatch.Stop();
+                
+                // Track successful tool usage
+                telemetryService?.TrackToolUsage(toolName, context.User, parameters, true, stopwatch.ElapsedMilliseconds);
+                
+                return Results.Ok(result);
             }
-
-            // Check for required role claim - try different claim types that Azure AD might use
-            var hasRoleClaim = context.User.HasClaim("roles", "GetAlerts") ||
-                              context.User.HasClaim("http://schemas.microsoft.com/ws/2008/06/identity/claims/role", "GetAlerts") ||
-                              context.User.HasClaim("role", "GetAlerts");
-
-            if (!hasRoleClaim)
+            catch (Exception ex)
             {
-                return Results.Forbid();
+                stopwatch.Stop();
+                
+                // Track failed tool usage
+                telemetryService?.TrackToolUsage(toolName, context.User, null, false, stopwatch.ElapsedMilliseconds);
+                
+                // Log the exception
+                var logger = context.RequestServices.GetService<ILogger<Program>>();
+                logger?.LogError(ex, "Error executing tool {ToolName}", toolName);
+                
+                return Results.Problem(detail: ex.Message, title: "Tool execution failed", statusCode: 500);
             }
-
-            using var reader = new StreamReader(context.Request.Body);
-            var body = await reader.ReadToEndAsync();
-            var parameters = string.IsNullOrEmpty(body) 
-                ? new Dictionary<string, object>() 
-                : JsonSerializer.Deserialize<Dictionary<string, object>>(body) ?? new Dictionary<string, object>();
-
-            var result = await registry.ExecuteTool(toolName, parameters);
-            return Results.Ok(result);
         })
         .RequireAuthorization()
         .WithTags("MCP");

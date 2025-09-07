@@ -1,8 +1,38 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using ModelContextProtocol.Server;
+using MCPServer.Services;
+using MCPServer.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Add Application Insights
+builder.Services.AddApplicationInsightsTelemetry(options =>
+{
+    // Connection string can be set via configuration or environment variable
+    if (!string.IsNullOrEmpty(builder.Configuration["ApplicationInsights:ConnectionString"]))
+    {
+        options.ConnectionString = builder.Configuration["ApplicationInsights:ConnectionString"];
+    }
+#pragma warning disable CS0618 // Type or member is obsolete
+    else if (!string.IsNullOrEmpty(builder.Configuration["ApplicationInsights:InstrumentationKey"]))
+    {
+        options.InstrumentationKey = builder.Configuration["ApplicationInsights:InstrumentationKey"];
+    }
+#pragma warning restore CS0618 // Type or member is obsolete
+    
+    // Configure telemetry modules based on settings
+    options.EnableRequestTrackingTelemetryModule = builder.Configuration.GetValue<bool>("ApplicationInsights:EnableRequestTrackingTelemetryModule", true);
+    options.EnableDependencyTrackingTelemetryModule = builder.Configuration.GetValue<bool>("ApplicationInsights:EnableDependencyTrackingTelemetryModule", true);
+    options.EnablePerformanceCounterCollectionModule = builder.Configuration.GetValue<bool>("ApplicationInsights:EnablePerformanceCounterCollectionModule", true);
+    options.EnableEventCounterCollectionModule = builder.Configuration.GetValue<bool>("ApplicationInsights:EnableEventCounterCollectionModule", true);
+    options.EnableHeartbeat = builder.Configuration.GetValue<bool>("ApplicationInsights:EnableHeartbeat", true);
+    // Note: EnableAzureInstanceMetadata is not available in ApplicationInsightsServiceOptions
+    // Azure instance metadata collection is automatically enabled when running in Azure
+});
+
+// Add custom MCP telemetry service
+builder.Services.AddSingleton<McpTelemetryService>();
 
 // Add services to the container.
 builder.Services.AddEndpointsApiExplorer();
@@ -99,11 +129,15 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             };
         }
         
-        // Add event handlers for debugging JWT validation
+        // Add event handlers for debugging JWT validation and telemetry tracking
         options.Events = new Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents
         {
             OnAuthenticationFailed = context =>
             {
+                // Track authentication failure
+                var telemetryService = context.HttpContext.RequestServices.GetService<McpTelemetryService>();
+                telemetryService?.TrackAuthenticationEvent("AuthenticationFailed", context.Principal, false, context.Exception?.Message);
+                
                 if (builder.Environment.IsDevelopment() || skipSignatureValidation)
                 {
                     Console.WriteLine($"JWT Authentication failed: {context.Exception}");
@@ -112,6 +146,10 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             },
             OnTokenValidated = context =>
             {
+                // Track successful authentication
+                var telemetryService = context.HttpContext.RequestServices.GetService<McpTelemetryService>();
+                telemetryService?.TrackAuthenticationEvent("TokenValidated", context.Principal, true);
+                
                 if (builder.Environment.IsDevelopment() || skipSignatureValidation)
                 {
                     Console.WriteLine($"JWT Token validated successfully (Signature validation: {(!skipSignatureValidation ? "enabled" : "SKIPPED")})");
@@ -125,6 +163,10 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             },
             OnChallenge = context =>
             {
+                // Track authentication challenge
+                var telemetryService = context.HttpContext.RequestServices.GetService<McpTelemetryService>();
+                telemetryService?.TrackAuthenticationEvent("Challenge", null, false, $"{context.Error} - {context.ErrorDescription}");
+                
                 if (builder.Environment.IsDevelopment() || skipSignatureValidation)
                 {
                     Console.WriteLine($"JWT Challenge: {context.Error} - {context.ErrorDescription}");
@@ -133,6 +175,10 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             },
             OnForbidden = context =>
             {
+                // Track forbidden access
+                var telemetryService = context.HttpContext.RequestServices.GetService<McpTelemetryService>();
+                telemetryService?.TrackAuthenticationEvent("Forbidden", context.HttpContext.User, false);
+                
                 if (builder.Environment.IsDevelopment() || skipSignatureValidation)
                 {
                     Console.WriteLine("JWT Forbidden");
@@ -180,6 +226,9 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+// Add telemetry middleware before authentication
+app.UseMiddleware<TelemetryMiddleware>();
 
 // Add authentication and authorization middleware
 app.UseAuthentication();

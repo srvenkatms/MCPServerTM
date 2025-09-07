@@ -9,6 +9,7 @@ A Model Context Protocol (MCP) server implementation with OAuth 2.0 protection, 
 - **Weather Tools** - Three weather-related tools with realistic mock data
 - **Swagger Documentation** - Interactive API documentation
 - **Scope-based Access Control** - Requires `mcp:tools` scope for tool access
+- **Application Insights Integration** - Comprehensive monitoring and anomaly detection
 
 ## Architecture
 
@@ -103,11 +104,25 @@ The server is configured via `appsettings.json` for Entra ID integration:
   "EntraId": {
     "Authority": "https://login.microsoftonline.com/{your-tenant-id}",
     "Audience": "api://your-app-registration-id"
+  },
+  "ApplicationInsights": {
+    "ConnectionString": "your-application-insights-connection-string"
   }
 }
 ```
 
 Replace `{your-tenant-id}` with your actual Azure AD tenant ID and `{your-app-registration-id}` with your app registration ID.
+
+### Application Insights Integration
+
+The server includes comprehensive monitoring through Azure Application Insights:
+- **Tool Usage Tracking**: Monitor which tools are being used and by whom
+- **Authentication Monitoring**: Track authentication success/failure events
+- **Performance Metrics**: Monitor API response times and system performance
+- **Anomaly Detection**: Automatically detect unusual usage patterns
+- **Custom Dashboards**: Create visualizations of usage patterns and system health
+
+For detailed configuration and usage, see [APPLICATION_INSIGHTS.md](APPLICATION_INSIGHTS.md).
 
 ### Required Entra ID App Registration Setup
 
