@@ -10,7 +10,7 @@ namespace MCPServer.Services;
 /// </summary>
 public class McpTelemetryService
 {
-    private readonly TelemetryClient _telemetryClient;
+    private readonly TelemetryClient? _telemetryClient;
     private readonly IConfiguration _configuration;
     private readonly ILogger<McpTelemetryService> _logger;
     
@@ -21,19 +21,26 @@ public class McpTelemetryService
     // Configuration values
     private readonly int _maxRequestsPerMinute;
     private readonly int _maxFailuresPerMinute;
+    private readonly bool _isTelemetryEnabled;
 
     public McpTelemetryService(
-        TelemetryClient telemetryClient,
         IConfiguration configuration,
-        ILogger<McpTelemetryService> logger)
+        ILogger<McpTelemetryService> logger,
+        TelemetryClient? telemetryClient = null)
     {
         _telemetryClient = telemetryClient;
         _configuration = configuration;
         _logger = logger;
+        _isTelemetryEnabled = _telemetryClient != null;
         
         // Load anomaly detection thresholds
         _maxRequestsPerMinute = configuration.GetValue<int>("ApplicationInsights:CustomTelemetry:AnomalyDetection:MaxRequestsPerMinute", 100);
         _maxFailuresPerMinute = configuration.GetValue<int>("ApplicationInsights:CustomTelemetry:AnomalyDetection:MaxFailuresPerMinute", 10);
+        
+        if (!_isTelemetryEnabled)
+        {
+            _logger.LogWarning("Application Insights TelemetryClient not available. Telemetry tracking will be disabled.");
+        }
     }
 
     /// <summary>
@@ -41,8 +48,12 @@ public class McpTelemetryService
     /// </summary>
     public void TrackToolUsage(string toolName, ClaimsPrincipal? user, Dictionary<string, object>? parameters = null, bool isSuccess = true, double? duration = null)
     {
-        if (!_configuration.GetValue<bool>("ApplicationInsights:CustomTelemetry:TrackToolUsage", true))
+        if (!_isTelemetryEnabled || !_configuration.GetValue<bool>("ApplicationInsights:CustomTelemetry:TrackToolUsage", true))
+        {
+            // Log locally when telemetry is disabled
+            _logger.LogInformation("Tool usage: {ToolName}, Success: {IsSuccess}, Duration: {Duration}ms", toolName, isSuccess, duration);
             return;
+        }
 
         var userId = GetUserId(user);
         var telemetryProperties = new Dictionary<string, string>
@@ -72,7 +83,7 @@ public class McpTelemetryService
             }
         }
 
-        _telemetryClient.TrackEvent("MCP_ToolUsage", telemetryProperties, telemetryMetrics);
+        _telemetryClient?.TrackEvent("MCP_ToolUsage", telemetryProperties, telemetryMetrics);
 
         // Check for anomalies
         if (userId != null)
@@ -86,8 +97,12 @@ public class McpTelemetryService
     /// </summary>
     public void TrackAuthenticationEvent(string eventType, ClaimsPrincipal? user, bool isSuccess, string? errorMessage = null)
     {
-        if (!_configuration.GetValue<bool>("ApplicationInsights:CustomTelemetry:TrackAuthenticationEvents", true))
+        if (!_isTelemetryEnabled || !_configuration.GetValue<bool>("ApplicationInsights:CustomTelemetry:TrackAuthenticationEvents", true))
+        {
+            // Log locally when telemetry is disabled
+            _logger.LogInformation("Authentication event: {EventType}, Success: {IsSuccess}, Error: {ErrorMessage}", eventType, isSuccess, errorMessage);
             return;
+        }
 
         var userId = GetUserId(user);
         var properties = new Dictionary<string, string>
@@ -111,7 +126,7 @@ public class McpTelemetryService
             properties["Scopes"] = string.Join(",", scopes);
         }
 
-        _telemetryClient.TrackEvent("MCP_Authentication", properties);
+        _telemetryClient?.TrackEvent("MCP_Authentication", properties);
 
         // Track failed authentication attempts for anomaly detection
         if (!isSuccess && userId != null)
@@ -125,6 +140,13 @@ public class McpTelemetryService
     /// </summary>
     public void TrackApiRequest(string endpoint, ClaimsPrincipal? user, int statusCode, double duration)
     {
+        if (!_isTelemetryEnabled)
+        {
+            // Log locally when telemetry is disabled
+            _logger.LogInformation("API request: {Endpoint}, StatusCode: {StatusCode}, Duration: {Duration}ms", endpoint, statusCode, duration);
+            return;
+        }
+
         var userId = GetUserId(user);
         var properties = new Dictionary<string, string>
         {
@@ -140,7 +162,7 @@ public class McpTelemetryService
             ["Duration"] = duration
         };
 
-        _telemetryClient.TrackEvent("MCP_ApiRequest", properties, metrics);
+        _telemetryClient?.TrackEvent("MCP_ApiRequest", properties, metrics);
     }
 
     /// <summary>
@@ -148,8 +170,12 @@ public class McpTelemetryService
     /// </summary>
     public void TrackAnomaly(string anomalyType, string userId, Dictionary<string, string>? additionalProperties = null)
     {
-        if (!_configuration.GetValue<bool>("ApplicationInsights:CustomTelemetry:TrackAnomalies", true))
+        if (!_isTelemetryEnabled || !_configuration.GetValue<bool>("ApplicationInsights:CustomTelemetry:TrackAnomalies", true))
+        {
+            // Always log anomalies locally, even when telemetry is disabled
+            _logger.LogWarning("Anomaly detected: {AnomalyType} for user {UserId}", anomalyType, userId);
             return;
+        }
 
         var properties = new Dictionary<string, string>
         {
@@ -166,7 +192,7 @@ public class McpTelemetryService
             }
         }
 
-        _telemetryClient.TrackEvent("MCP_Anomaly", properties);
+        _telemetryClient?.TrackEvent("MCP_Anomaly", properties);
         
         // Also log as a warning for immediate attention
         _logger.LogWarning("Anomaly detected: {AnomalyType} for user {UserId}", anomalyType, userId);
@@ -177,7 +203,14 @@ public class McpTelemetryService
     /// </summary>
     public void TrackCustomMetric(string metricName, double value, Dictionary<string, string>? properties = null)
     {
-        _telemetryClient.TrackMetric(metricName, value, properties);
+        if (!_isTelemetryEnabled)
+        {
+            // Log locally when telemetry is disabled
+            _logger.LogInformation("Custom metric: {MetricName} = {Value}", metricName, value);
+            return;
+        }
+
+        _telemetryClient?.TrackMetric(metricName, value, properties);
     }
 
     /// <summary>
@@ -185,7 +218,7 @@ public class McpTelemetryService
     /// </summary>
     public void FlushTelemetry()
     {
-        _telemetryClient.Flush();
+        _telemetryClient?.Flush();
     }
 
     private void CheckForAnomalies(string userId, bool isSuccess)

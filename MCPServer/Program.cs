@@ -39,8 +39,17 @@ builder.Services.AddApplicationInsightsTelemetry(options =>
     // Azure instance metadata collection is automatically enabled when running in Azure
 });
 
-// Add custom MCP telemetry service
-builder.Services.AddSingleton<McpTelemetryService>();
+// Add custom MCP telemetry service with fallback for missing TelemetryClient
+builder.Services.AddSingleton<McpTelemetryService>(provider =>
+{
+    var configuration = provider.GetRequiredService<IConfiguration>();
+    var logger = provider.GetRequiredService<ILogger<McpTelemetryService>>();
+    
+    // Try to get TelemetryClient, but don't fail if it's not available
+    var telemetryClient = provider.GetService<Microsoft.ApplicationInsights.TelemetryClient>();
+    
+    return new McpTelemetryService(configuration, logger, telemetryClient);
+});
 
 // Add services to the container.
 builder.Services.AddEndpointsApiExplorer();
