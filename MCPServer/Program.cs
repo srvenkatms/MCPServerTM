@@ -9,15 +9,20 @@ var builder = WebApplication.CreateBuilder(args);
 // Add Application Insights
 builder.Services.AddApplicationInsightsTelemetry(options =>
 {
-    // Connection string can be set via configuration or environment variable
-    if (!string.IsNullOrEmpty(builder.Configuration["ApplicationInsights:ConnectionString"]))
+    // Check for Azure standard environment variables first, then fallback to configuration
+    var connectionString = Environment.GetEnvironmentVariable("APPLICATIONINSIGHTS_CONNECTION_STRING") 
+                        ?? builder.Configuration["ApplicationInsights:ConnectionString"];
+    var instrumentationKey = Environment.GetEnvironmentVariable("APPLICATIONINSIGHTS_INSTRUMENTATION_KEY")
+                           ?? builder.Configuration["ApplicationInsights:InstrumentationKey"];
+    
+    if (!string.IsNullOrEmpty(connectionString))
     {
-        options.ConnectionString = builder.Configuration["ApplicationInsights:ConnectionString"];
+        options.ConnectionString = connectionString;
     }
 #pragma warning disable CS0618 // Type or member is obsolete
-    else if (!string.IsNullOrEmpty(builder.Configuration["ApplicationInsights:InstrumentationKey"]))
+    else if (!string.IsNullOrEmpty(instrumentationKey))
     {
-        options.InstrumentationKey = builder.Configuration["ApplicationInsights:InstrumentationKey"];
+        options.InstrumentationKey = instrumentationKey;
     }
 #pragma warning restore CS0618 // Type or member is obsolete
     
