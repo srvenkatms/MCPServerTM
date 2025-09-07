@@ -81,10 +81,19 @@ Configure Application Insights in `appsettings.json`:
 
 ### Environment Variables
 You can also configure Application Insights using environment variables (recommended for Azure deployments):
-- `APPLICATIONINSIGHTS_CONNECTION_STRING`: Connection string for Application Insights
-- `APPLICATIONINSIGHTS_INSTRUMENTATION_KEY`: Legacy instrumentation key (deprecated)
 
-The application will automatically check for these standard Azure environment variables first, then fall back to configuration file settings.
+**Primary (Azure Container Apps standard):**
+- `APPLICATIONINSIGHTS_CONNECTIONSTRING`: Connection string for Application Insights
+- `APPLICATIONINSIGHTS_INSTRUMENTATIONKEY`: Legacy instrumentation key (deprecated)
+
+**Fallback (Legacy naming):**
+- `APPLICATIONINSIGHTS_CONNECTION_STRING`: Connection string for Application Insights (with underscores)
+- `APPLICATIONINSIGHTS_INSTRUMENTATION_KEY`: Legacy instrumentation key (with underscores, deprecated)
+
+The application will automatically check for these environment variables in priority order:
+1. Azure standard naming (without underscores) - used by Azure Container Apps
+2. Legacy naming (with underscores) - for backward compatibility  
+3. Configuration file settings
 
 ### Azure Configuration
 When running in Azure App Service or Azure Container Apps, Application Insights can be configured through:
@@ -163,9 +172,9 @@ Configure appropriate thresholds based on your usage patterns:
 
 ### Azure Container Apps Configuration
 If you're not seeing telemetry data in Azure Container Apps:
-1. **Check Environment Variables**: Ensure you're using the standard Azure environment variables:
-   - `APPLICATIONINSIGHTS_CONNECTION_STRING` (preferred)
-   - `APPLICATIONINSIGHTS_INSTRUMENTATION_KEY` (legacy, deprecated)
+1. **Check Environment Variables**: The application supports both naming conventions:
+   - **Azure standard** (preferred): `APPLICATIONINSIGHTS_CONNECTIONSTRING`, `APPLICATIONINSIGHTS_INSTRUMENTATIONKEY`  
+   - **Legacy naming**: `APPLICATIONINSIGHTS_CONNECTION_STRING`, `APPLICATIONINSIGHTS_INSTRUMENTATION_KEY`
 2. **Verify Connection String Format**: The connection string should follow this format:
    ```
    InstrumentationKey=your-key;IngestionEndpoint=https://your-region.in.applicationinsights.azure.com/;LiveEndpoint=https://your-region.livediagnostics.monitor.azure.com/

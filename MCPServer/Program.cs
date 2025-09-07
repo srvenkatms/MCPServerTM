@@ -9,10 +9,13 @@ var builder = WebApplication.CreateBuilder(args);
 // Add Application Insights
 builder.Services.AddApplicationInsightsTelemetry(options =>
 {
-    // Check for Azure standard environment variables first, then fallback to configuration
-    var connectionString = Environment.GetEnvironmentVariable("APPLICATIONINSIGHTS_CONNECTION_STRING") 
+    // Check for Azure standard environment variables first (without underscores), 
+    // then legacy names (with underscores), then fallback to configuration
+    var connectionString = Environment.GetEnvironmentVariable("APPLICATIONINSIGHTS_CONNECTIONSTRING") 
+                        ?? Environment.GetEnvironmentVariable("APPLICATIONINSIGHTS_CONNECTION_STRING") 
                         ?? builder.Configuration["ApplicationInsights:ConnectionString"];
-    var instrumentationKey = Environment.GetEnvironmentVariable("APPLICATIONINSIGHTS_INSTRUMENTATION_KEY")
+    var instrumentationKey = Environment.GetEnvironmentVariable("APPLICATIONINSIGHTS_INSTRUMENTATIONKEY")
+                           ?? Environment.GetEnvironmentVariable("APPLICATIONINSIGHTS_INSTRUMENTATION_KEY")
                            ?? builder.Configuration["ApplicationInsights:InstrumentationKey"];
     
     if (!string.IsNullOrEmpty(connectionString))
