@@ -1,8 +1,52 @@
 using WeatherAPI.Models;
 using WeatherAPI.Services;
+using WeatherAPI.Middleware;
 using System.Reflection;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Add Application Insights
+builder.Services.AddApplicationInsightsTelemetry(options =>
+{
+    // Check for Azure standard environment variables first (without underscores), 
+    // then legacy names (with underscores), then fallback to configuration
+    var connectionString = Environment.GetEnvironmentVariable("APPLICATIONINSIGHTS_CONNECTIONSTRING") 
+                        ?? Environment.GetEnvironmentVariable("APPLICATIONINSIGHTS_CONNECTION_STRING") 
+                        ?? builder.Configuration["ApplicationInsights:ConnectionString"];
+    var instrumentationKey = Environment.GetEnvironmentVariable("APPLICATIONINSIGHTS_INSTRUMENTATIONKEY")
+                           ?? Environment.GetEnvironmentVariable("APPLICATIONINSIGHTS_INSTRUMENTATION_KEY")
+                           ?? builder.Configuration["ApplicationInsights:InstrumentationKey"];
+    
+    if (!string.IsNullOrEmpty(connectionString))
+    {
+        options.ConnectionString = connectionString;
+    }
+#pragma warning disable CS0618 // Type or member is obsolete
+    else if (!string.IsNullOrEmpty(instrumentationKey))
+    {
+        options.InstrumentationKey = instrumentationKey;
+    }
+#pragma warning restore CS0618 // Type or member is obsolete
+    
+    // Configure telemetry modules based on settings
+    options.EnableRequestTrackingTelemetryModule = builder.Configuration.GetValue<bool>("ApplicationInsights:EnableRequestTrackingTelemetryModule", true);
+    options.EnableDependencyTrackingTelemetryModule = builder.Configuration.GetValue<bool>("ApplicationInsights:EnableDependencyTrackingTelemetryModule", true);
+    options.EnablePerformanceCounterCollectionModule = builder.Configuration.GetValue<bool>("ApplicationInsights:EnablePerformanceCounterCollectionModule", true);
+    options.EnableEventCounterCollectionModule = builder.Configuration.GetValue<bool>("ApplicationInsights:EnableEventCounterCollectionModule", true);
+    options.EnableHeartbeat = builder.Configuration.GetValue<bool>("ApplicationInsights:EnableHeartbeat", true);
+});
+
+// Add custom Weather telemetry service with fallback for missing TelemetryClient
+builder.Services.AddSingleton<WeatherTelemetryService>(provider =>
+{
+    var configuration = provider.GetRequiredService<IConfiguration>();
+    var logger = provider.GetRequiredService<ILogger<WeatherTelemetryService>>();
+    
+    // Try to get TelemetryClient, but don't fail if it's not available
+    var telemetryClient = provider.GetService<Microsoft.ApplicationInsights.TelemetryClient>();
+    
+    return new WeatherTelemetryService(configuration, logger, telemetryClient);
+});
 
 // Add services to the container.
 builder.Services.AddControllers();
@@ -105,6 +149,9 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+// Add telemetry middleware early in the pipeline
+app.UseMiddleware<WeatherTelemetryMiddleware>();
 
 app.UseAuthorization();
 

@@ -8,6 +8,7 @@ A comprehensive Weather API that integrates with Agent Foundry SDK and MCP (Mode
 - **Agent Foundry Integration**: Uses Agent Foundry SDK for LLM-powered agent management
 - **MCP Client**: Connects to MCP Server to retrieve weather data using weather tools
 - **Multiple Endpoints**: Current weather, forecasts, alerts, and comprehensive weather data
+- **Application Insights Integration**: Comprehensive telemetry and monitoring for operations and performance
 - **Configurable**: All settings externalized to configuration files
 - **Development Ready**: Includes development authentication for testing
 
@@ -167,7 +168,92 @@ All configurable elements are in `appsettings.json`:
 }
 ```
 
-## Architecture
+## Application Insights Integration
+
+The Weather API includes comprehensive Application Insights integration for monitoring and telemetry, similar to the MCPServer implementation.
+
+### Features
+- **Request Tracking**: All API requests are automatically tracked with performance metrics
+- **Weather-Specific Telemetry**: Custom events for weather operations (current weather, forecasts, alerts)
+- **Dependency Tracking**: External dependencies (Agent Foundry, MCP Server) are monitored
+- **Anomaly Detection**: Built-in detection for unusual request patterns
+- **Performance Monitoring**: Response times and throughput metrics
+
+### Configuration
+
+Add Application Insights configuration to `appsettings.json`:
+
+```json
+{
+  "ApplicationInsights": {
+    "ConnectionString": null,
+    "InstrumentationKey": null,
+    "EnableRequestTrackingTelemetryModule": true,
+    "EnableDependencyTrackingTelemetryModule": true,
+    "EnablePerformanceCounterCollectionModule": true,
+    "EnableEventCounterCollectionModule": true,
+    "EnableHeartbeat": true,
+    "CustomTelemetry": {
+      "TrackWeatherRequests": true,
+      "TrackPerformanceMetrics": true,
+      "TrackAnomalies": true,
+      "AnomalyDetection": {
+        "MaxRequestsPerMinute": 100,
+        "MaxFailuresPerMinute": 10
+      }
+    }
+  }
+}
+```
+
+### Environment Variables
+
+For production deployments, configure Application Insights using environment variables:
+
+```bash
+# Primary (Azure Container Apps standard)
+export APPLICATIONINSIGHTS_CONNECTIONSTRING="your-application-insights-connection-string"
+
+# Legacy (backward compatibility)
+export APPLICATIONINSIGHTS_CONNECTION_STRING="your-application-insights-connection-string"
+```
+
+### Custom Events Tracked
+
+The Weather API tracks the following custom events:
+- `Weather_Request`: Weather requests with city, operation type, and performance data
+- `Weather_Operation`: Specific weather operations (current, forecast, alerts)
+- `Weather_ApiRequest`: General API request patterns
+- `Weather_Anomaly`: Detected anomalies with details
+
+### Custom Metrics
+
+- `Weather.Current.Requests`: Current weather endpoint access
+- `Weather.Forecast.Requests`: Forecast endpoint access  
+- `Weather.Alerts.Requests`: Alerts endpoint access
+- `Weather.General.Requests`: General weather endpoint access
+
+### Viewing Telemetry Data
+
+1. **Azure Portal**: Navigate to your Application Insights resource
+2. **Live Metrics**: Real-time monitoring of weather requests
+3. **Analytics**: Query custom events using KQL:
+
+```kql
+// Weather requests by city
+customEvents
+| where name == "Weather_Request"
+| summarize count() by tostring(customDimensions.City), bin(timestamp, 1h)
+| render timechart
+
+// Performance analysis by operation type
+customEvents  
+| where name == "Weather_Operation"
+| extend Duration = todouble(customMeasurements.Duration)
+| summarize avg(Duration), max(Duration), percentile(Duration, 95) by tostring(customDimensions.OperationType)
+```
+
+## Development
 
 The Weather API is built with the following components:
 
@@ -182,6 +268,21 @@ The Weather API is built with the following components:
 ## Development
 
 For development, the API uses simplified authentication with the MCP Server. The MCP Server includes a development token endpoint (`/dev/token`) that provides mock authentication for testing.
+
+## Architecture
+
+The Weather API is built with the following components:
+
+1. **Controllers**: Handle HTTP requests and responses
+2. **Services**: 
+   - `AgentFoundryService`: Manages AI agents using Agent Foundry SDK
+   - `McpClientService`: Communicates with MCP Server weather tools
+   - `WeatherService`: Orchestrates weather data retrieval
+   - `WeatherTelemetryService`: Handles Application Insights telemetry tracking
+3. **Middleware**:
+   - `WeatherTelemetryMiddleware`: Tracks API requests and performance metrics
+4. **Models**: Define data structures for requests, responses, and configuration
+5. **Configuration**: Externalized settings for all components
 
 ## Production Deployment
 

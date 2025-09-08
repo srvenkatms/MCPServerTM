@@ -1,4 +1,5 @@
 using WeatherAPI.Models;
+using System.Diagnostics;
 
 namespace WeatherAPI.Services;
 
@@ -14,41 +15,64 @@ public class WeatherService : IWeatherService
     private readonly WeatherPromptsConfig _prompts;
     private readonly AgentFoundryConfig _agentConfig;
     private readonly ILogger<WeatherService> _logger;
+    private readonly WeatherTelemetryService _telemetryService;
 
     public WeatherService(
         IMcpClientService mcpClient,
         IAgentFoundryService agentFoundry,
         WeatherPromptsConfig prompts,
         AgentFoundryConfig agentConfig,
-        ILogger<WeatherService> logger)
+        ILogger<WeatherService> logger,
+        WeatherTelemetryService telemetryService)
     {
         _mcpClient = mcpClient;
         _agentFoundry = agentFoundry;
         _prompts = prompts;
         _agentConfig = agentConfig;
         _logger = logger;
+        _telemetryService = telemetryService;
     }
 
     public async Task<WeatherResponse> GetWeatherAsync(WeatherRequest request)
     {
+        var overallStopwatch = Stopwatch.StartNew();
+        
         try
         {
             _logger.LogInformation("Processing weather request for city: {City}", request.City);
 
-            // Get or create agent
+            // Get or create agent with dependency tracking
             var agentName = _agentConfig.DefaultAgentName;
+            var agentStopwatch = Stopwatch.StartNew();
             var agentId = await _agentFoundry.GetOrCreateAgentAsync(agentName);
+            agentStopwatch.Stop();
+            
+            _telemetryService.TrackDependency("AgentFoundry", "GetOrCreateAgent", true, agentStopwatch.ElapsedMilliseconds, "200");
 
             // Determine state from city if not provided
             var state = request.State ?? await DetermineStateFromCityAsync(request.City);
 
             // Create tasks to fetch all weather data in parallel via AgentFoundryService
+            var currentWeatherStopwatch = Stopwatch.StartNew();
             var currentWeatherTask = _agentFoundry.GetCurrentWeatherAsync(agentName, state, request.City);
+            
+            var forecastStopwatch = Stopwatch.StartNew();
             var forecastTask = _agentFoundry.GetWeatherForecastAsync(agentName, state, request.Days);
+            
+            var alertsStopwatch = Stopwatch.StartNew();
             var alertsTask = _agentFoundry.GetWeatherAlertsAsync(agentName, state);
 
             // Wait for all tasks to complete
             await Task.WhenAll(currentWeatherTask, forecastTask, alertsTask);
+            
+            // Track dependency calls
+            currentWeatherStopwatch.Stop();
+            forecastStopwatch.Stop();
+            alertsStopwatch.Stop();
+            
+            _telemetryService.TrackDependency("AgentFoundry", "GetCurrentWeather", currentWeatherTask.IsCompletedSuccessfully, currentWeatherStopwatch.ElapsedMilliseconds);
+            _telemetryService.TrackDependency("AgentFoundry", "GetWeatherForecast", forecastTask.IsCompletedSuccessfully, forecastStopwatch.ElapsedMilliseconds);
+            _telemetryService.TrackDependency("AgentFoundry", "GetWeatherAlerts", alertsTask.IsCompletedSuccessfully, alertsStopwatch.ElapsedMilliseconds);
 
             var response = new WeatherResponse
             {
@@ -64,19 +88,31 @@ public class WeatherService : IWeatherService
             // Process with agent foundry for enhanced responses (optional)
             if (!string.IsNullOrEmpty(_prompts.CurrentWeatherTemplate) && response.CurrentWeather != null)
             {
+                var promptStopwatch = Stopwatch.StartNew();
                 var prompt = _prompts.CurrentWeatherTemplate
                     .Replace("{city}", request.City)
                     .Replace("{state}", state);
                 var agentResponse = await _agentFoundry.ProcessWeatherRequestAsync(agentId, prompt);
+                promptStopwatch.Stop();
+                
+                _telemetryService.TrackDependency("AgentFoundry", "ProcessWeatherRequest", true, promptStopwatch.ElapsedMilliseconds);
                 _logger.LogDebug("Agent response for current weather: {Response}", agentResponse);
             }
 
-            _logger.LogInformation("Successfully processed weather request for {City}, {State}", request.City, state);
+            overallStopwatch.Stop();
+            _logger.LogInformation("Successfully processed weather request for {City}, {State} in {Duration}ms", 
+                request.City, state, overallStopwatch.ElapsedMilliseconds);
             return response;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to process weather request for city: {City}", request.City);
+            overallStopwatch.Stop();
+            _logger.LogError(ex, "Failed to process weather request for city: {City} after {Duration}ms", 
+                request.City, overallStopwatch.ElapsedMilliseconds);
+                
+            // Track failed dependency
+            _telemetryService.TrackDependency("WeatherService", "GetWeatherAsync", false, overallStopwatch.ElapsedMilliseconds, ex.GetType().Name);
+            
             return new WeatherResponse
             {
                 City = request.City,
