@@ -154,7 +154,7 @@ public class McpClientService : IMcpClientService
         try
         {
             var payload = new { state = state, city = city };
-            var request = await CreateAuthenticatedRequestAsync("mcp/tools/getcurrentweather", HttpMethod.Post, payload);
+            var request = await CreateAuthenticatedRequestAsync("tools/getcurrentweather", HttpMethod.Post, payload);
             
             var response = await _httpClient.SendAsync(request);
             response.EnsureSuccessStatusCode();
@@ -176,7 +176,7 @@ public class McpClientService : IMcpClientService
         try
         {
             var payload = new { state = state, days = days };
-            var request = await CreateAuthenticatedRequestAsync("mcp/tools/getweatherforecast", HttpMethod.Post, payload);
+            var request = await CreateAuthenticatedRequestAsync("tools/getweatherforecast", HttpMethod.Post, payload);
             
             var response = await _httpClient.SendAsync(request);
             response.EnsureSuccessStatusCode();
@@ -198,7 +198,7 @@ public class McpClientService : IMcpClientService
         try
         {
             var payload = new { state = state };
-            var request = await CreateAuthenticatedRequestAsync("mcp/tools/getweatheralerts", HttpMethod.Post, payload);
+            var request = await CreateAuthenticatedRequestAsync("tools/getweatheralerts", HttpMethod.Post, payload);
             
             var response = await _httpClient.SendAsync(request);
             response.EnsureSuccessStatusCode();
