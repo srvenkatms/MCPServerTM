@@ -36,15 +36,16 @@ public class WeatherService : IWeatherService
             _logger.LogInformation("Processing weather request for city: {City}", request.City);
 
             // Get or create agent
-            var agentId = await _agentFoundry.GetOrCreateAgentAsync(_agentConfig.DefaultAgentName);
+            var agentName = _agentConfig.DefaultAgentName;
+            var agentId = await _agentFoundry.GetOrCreateAgentAsync(agentName);
 
             // Determine state from city if not provided
             var state = request.State ?? await DetermineStateFromCityAsync(request.City);
 
-            // Create tasks to fetch all weather data in parallel
-            var currentWeatherTask = _mcpClient.GetCurrentWeatherAsync(state, request.City);
-            var forecastTask = _mcpClient.GetWeatherForecastAsync(state, request.Days);
-            var alertsTask = _mcpClient.GetWeatherAlertsAsync(state);
+            // Create tasks to fetch all weather data in parallel via AgentFoundryService
+            var currentWeatherTask = _agentFoundry.GetCurrentWeatherAsync(agentName, state, request.City);
+            var forecastTask = _agentFoundry.GetWeatherForecastAsync(agentName, state, request.Days);
+            var alertsTask = _agentFoundry.GetWeatherAlertsAsync(agentName, state);
 
             // Wait for all tasks to complete
             await Task.WhenAll(currentWeatherTask, forecastTask, alertsTask);
@@ -66,7 +67,6 @@ public class WeatherService : IWeatherService
                 var prompt = _prompts.CurrentWeatherTemplate
                     .Replace("{city}", request.City)
                     .Replace("{state}", state);
-                
                 var agentResponse = await _agentFoundry.ProcessWeatherRequestAsync(agentId, prompt);
                 _logger.LogDebug("Agent response for current weather: {Response}", agentResponse);
             }
@@ -77,7 +77,6 @@ public class WeatherService : IWeatherService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to process weather request for city: {City}", request.City);
-            
             return new WeatherResponse
             {
                 City = request.City,
