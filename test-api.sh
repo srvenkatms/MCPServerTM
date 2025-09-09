@@ -36,14 +36,14 @@ else
     echo "❌ Expected 404, got $RESPONSE"
 fi
 
-# Test authentication - should fail without token
+# Test tools endpoint - should now work without token
 echo ""
-echo "🚫 Testing Unauthorized Access (should fail)..."
+echo "🔧 Testing MCP Tools Endpoint (should work without authentication)..."
 RESPONSE=$(curl -s -w "%{http_code}" -o /dev/null "$BASE_URL/mcp/tools")
-if [ "$RESPONSE" = "401" ]; then
-    echo "✅ Correctly blocked unauthorized access (401)"
+if [ "$RESPONSE" = "200" ]; then
+    echo "✅ Tools endpoint accessible without authentication (200)"
 else
-    echo "❌ Expected 401, got $RESPONSE"
+    echo "❌ Expected 200, got $RESPONSE"
 fi
 
 echo ""
