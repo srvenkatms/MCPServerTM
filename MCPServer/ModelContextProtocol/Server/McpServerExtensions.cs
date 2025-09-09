@@ -39,7 +39,6 @@ public static class McpServerExtensions
             var tools = registry.GetTools();
             return Results.Ok(tools);
         })
-        .RequireAuthorization()
         .WithTags("MCP");
 
         endpoints.MapPost("/mcp/tools/{toolName}", async (string toolName, HttpContext context, McpServerRegistry registry) =>
