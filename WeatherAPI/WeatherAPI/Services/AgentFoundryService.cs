@@ -44,17 +44,32 @@ public class AgentFoundryService : IAgentFoundryService
                 return cachedAgentId;
             }
 
-            // For now, create a mock agent ID until we can properly integrate with Agent Foundry
-            // In a real implementation, this would connect to Azure AI Foundry
-            var agentId = $"agent-{agentName}-{Guid.NewGuid().ToString("N")[..8]}";
+            // Call Azure AI Foundry API to create or get agent
+            var endpoint = _config.Endpoint.TrimEnd('/') + "/agents";
+            var payload = new { name = agentName, modelDeploymentName = _config.ModelDeploymentName };
+            var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
+            {
+                Content = new StringContent(System.Text.Json.JsonSerializer.Serialize(payload), System.Text.Encoding.UTF8, "application/json")
+            };
+            request.Headers.Add("Api-Key", _config.ApiKey);
+
+            var response = await _httpClient.SendAsync(request);
+            response.EnsureSuccessStatusCode();
+            var content = await response.Content.ReadAsStringAsync();
+            using var doc = System.Text.Json.JsonDocument.Parse(content);
+            var root = doc.RootElement;
+            string agentId = root.TryGetProperty("id", out var idProp) ? idProp.GetString() ?? "" : "";
+            if (string.IsNullOrEmpty(agentId))
+            {
+                throw new Exception($"AgentFoundry response did not contain an agent id. Raw response: {content}");
+            }
             _agentCache[agentName] = agentId;
-            _logger.LogInformation("Created mock agent (Agent Foundry integration pending): {AgentName} -> {AgentId}", agentName, agentId);
-            await Task.CompletedTask;
+            _logger.LogInformation("Created or retrieved agent from Foundry: {AgentName} -> {AgentId}", agentName, agentId);
             return agentId;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to get or create agent: {AgentName}", agentName);
+            _logger.LogError(ex, "Failed to get or create agent from Foundry: {AgentName}", agentName);
             // Return a fallback agent ID for development/testing
             var fallbackId = $"fallback-agent-{Guid.NewGuid()}";
             _agentCache[agentName] = fallbackId;
@@ -98,7 +113,28 @@ public class AgentFoundryService : IAgentFoundryService
         var response = await _httpClient.SendAsync(request);
         response.EnsureSuccessStatusCode();
         var content = await response.Content.ReadAsStringAsync();
-        return System.Text.Json.JsonSerializer.Deserialize<CurrentWeatherInfo>(content);
+        _logger.LogDebug("Raw getcurrentweather response: {Content}", content);
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(content);
+            var root = doc.RootElement;
+
+            // If this looks like an alerts payload (state + alerts array) bail out early
+            if (root.TryGetProperty("alerts", out _) && !root.TryGetProperty("location", out _))
+            {
+                _logger.LogWarning("getcurrentweather returned alerts schema (keys: {Keys}). Tool mismatch.", string.Join(',', root.EnumerateObject().Select(p => p.Name)));
+                return null;
+            }
+
+            var options = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+            var cw = System.Text.Json.JsonSerializer.Deserialize<CurrentWeatherInfo>(content, options);
+            return cw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to deserialize getcurrentweather response into CurrentWeatherInfo. Returning null.");
+            return null;
+        }
     }
 
     // New: Get weather forecast via MCP server, using agent context
