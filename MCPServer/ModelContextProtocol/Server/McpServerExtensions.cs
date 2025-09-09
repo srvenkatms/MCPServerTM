@@ -34,7 +34,13 @@ public static class McpServerExtensions
     /// </summary>
     public static IEndpointRouteBuilder MapMcpServer(this IEndpointRouteBuilder endpoints)
     {
-         endpoints.MapMethods("/mcp/tools", new[] { "GET", "POST" }, (McpServerRegistry registry) =>
+         endpoints.MapGet("/mcp/tools",(McpServerRegistry registry) =>
+        {
+            var tools = registry.GetTools();
+            return Results.Ok(tools);
+        })
+        .WithTags("MCP");
+         endpoints.MapPost("/mcp/Posttools",(McpServerRegistry registry) =>
         {
             var tools = registry.GetTools();
             return Results.Ok(tools);
