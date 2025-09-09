@@ -40,7 +40,7 @@ public static class McpServerExtensions
             return Results.Ok(tools);
         })
         .WithTags("MCP");
-         endpoints.MapPost("/mcp/Posttools",(McpServerRegistry registry) =>
+         endpoints.MapPost("/mcp/Posttools", (McpServerRegistry registry) =>
         {
             var tools = registry.GetTools();
             return Results.Ok(tools);
