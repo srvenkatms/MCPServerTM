@@ -15,17 +15,20 @@ public class McpClientService : IMcpClientService
     private readonly HttpClient _httpClient;
     private readonly McpServerConfig _config;
     private readonly ILogger<McpClientService> _logger;
+    private readonly IHttpContextAccessor _httpContextAccessor;
     private string? _accessToken;
     private DateTime _tokenExpiry;
 
     public McpClientService(
         HttpClient httpClient, 
         McpServerConfig config, 
-        ILogger<McpClientService> logger)
+        ILogger<McpClientService> logger,
+        IHttpContextAccessor httpContextAccessor)
     {
         _httpClient = httpClient;
         _config = config;
         _logger = logger;
+        _httpContextAccessor = httpContextAccessor;
     }
 
     private async Task<string> GetAccessTokenAsync()
@@ -138,6 +141,14 @@ public class McpClientService : IMcpClientService
             request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
         }
 
+        // Propagate correlation ID from current request context
+        var correlationId = GetCorrelationIdFromContext();
+        if (!string.IsNullOrEmpty(correlationId))
+        {
+            request.Headers.Add("x-correlation-id", correlationId);
+            _logger.LogDebug("Propagating correlation ID to MCP request: {CorrelationId}", correlationId);
+        }
+
         if (data != null)
         {
             request.Content = new StringContent(
@@ -147,6 +158,26 @@ public class McpClientService : IMcpClientService
         }
 
         return request;
+    }
+
+    private string? GetCorrelationIdFromContext()
+    {
+        var httpContext = _httpContextAccessor.HttpContext;
+        if (httpContext == null)
+            return null;
+
+        // Try to get correlation ID from context items first (set by middleware)
+        var correlationId = httpContext.Items["CorrelationId"]?.ToString();
+        if (!string.IsNullOrEmpty(correlationId))
+            return correlationId;
+
+        // Fallback to checking headers
+        correlationId = httpContext.Request.Headers["x-correlation-id"].FirstOrDefault()
+            ?? httpContext.Request.Headers["Request-ID"].FirstOrDefault()
+            ?? httpContext.Request.Headers["x-request-id"].FirstOrDefault()
+            ?? httpContext.Request.Headers["x-ms-request-id"].FirstOrDefault();
+
+        return correlationId;
     }
 
     public async Task<CurrentWeatherInfo?> GetCurrentWeatherAsync(string state, string? city = null)

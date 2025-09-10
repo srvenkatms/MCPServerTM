@@ -45,7 +45,7 @@ public class WeatherTelemetryService
     /// <summary>
     /// Track weather request with detailed parameters
     /// </summary>
-    public void TrackWeatherRequest(string requestType, string city, string? clientIp = null, Dictionary<string, object>? parameters = null, bool isSuccess = true, double? duration = null, int? statusCode = null)
+    public void TrackWeatherRequest(string requestType, string city, string? clientIp = null, Dictionary<string, object>? parameters = null, bool isSuccess = true, double? duration = null, int? statusCode = null, string? correlationId = null)
     {
         if (!_isTelemetryEnabled || !_configuration.GetValue<bool>("ApplicationInsights:CustomTelemetry:TrackWeatherRequests", true))
         {
@@ -61,6 +61,12 @@ public class WeatherTelemetryService
             ["IsSuccess"] = isSuccess.ToString(),
             ["ClientIP"] = clientIp ?? "Unknown"
         };
+
+        // Add correlation ID if provided
+        if (!string.IsNullOrEmpty(correlationId))
+        {
+            telemetryProperties["CorrelationId"] = correlationId;
+        }
 
         var telemetryMetrics = new Dictionary<string, double>();
         
@@ -126,7 +132,7 @@ public class WeatherTelemetryService
     /// <summary>
     /// Track API request patterns
     /// </summary>
-    public void TrackApiRequest(string endpoint, string? clientIp, int statusCode, double duration, string? userAgent = null)
+    public void TrackApiRequest(string endpoint, string? clientIp, int statusCode, double duration, string? userAgent = null, string? correlationId = null)
     {
         if (!_isTelemetryEnabled)
         {
@@ -145,6 +151,12 @@ public class WeatherTelemetryService
         if (!string.IsNullOrEmpty(userAgent))
         {
             properties["UserAgent"] = userAgent;
+        }
+
+        // Add correlation ID if provided
+        if (!string.IsNullOrEmpty(correlationId))
+        {
+            properties["CorrelationId"] = correlationId;
         }
 
         var metrics = new Dictionary<string, double>

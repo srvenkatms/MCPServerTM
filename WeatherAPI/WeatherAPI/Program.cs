@@ -51,6 +51,9 @@ builder.Services.AddSingleton<WeatherTelemetryService>(provider =>
 // Add services to the container.
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
+
+// Add HTTP context accessor for correlation ID propagation
+builder.Services.AddHttpContextAccessor();
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo
