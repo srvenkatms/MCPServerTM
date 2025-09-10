@@ -97,7 +97,7 @@ public class McpTelemetryService
         // Check for anomalies
         if (userId != null)
         {
-            CheckForAnomalies(userId, isSuccess);
+            CheckForAnomalies(userId, isSuccess, correlationId);
         }
     }
 
@@ -146,7 +146,7 @@ public class McpTelemetryService
         // Track failed authentication attempts for anomaly detection
         if (!isSuccess && userId != null)
         {
-            CheckForAnomalies(userId, false);
+            CheckForAnomalies(userId, false, correlationId);
         }
     }
 
@@ -248,7 +248,7 @@ public class McpTelemetryService
         _telemetryClient?.Flush();
     }
 
-    private void CheckForAnomalies(string userId, bool isSuccess)
+    private void CheckForAnomalies(string userId, bool isSuccess, string? correlationId = null)
     {
         var now = DateTime.UtcNow;
         var oneMinuteAgo = now.AddMinutes(-1);
@@ -268,7 +268,7 @@ public class McpTelemetryService
                 {
                     ["RequestCount"] = requestTimes.Count.ToString(),
                     ["ThresholdExceeded"] = _maxRequestsPerMinute.ToString()
-                });
+                }, correlationId);
             }
         }
 
@@ -289,7 +289,7 @@ public class McpTelemetryService
                     {
                         ["FailureCount"] = failureTimes.Count.ToString(),
                         ["ThresholdExceeded"] = _maxFailuresPerMinute.ToString()
-                    });
+                    }, correlationId);
                 }
             }
         }
@@ -357,11 +357,8 @@ public class McpTelemetryService
         var httpContext = _httpContextAccessor.HttpContext;
         if (httpContext?.Items.TryGetValue("UserAgent", out var userAgent) == true)
         {
-            var userAgentString = userAgent?.ToString() ?? "Unknown";
-            _logger.LogDebug("Retrieved UserAgent from HttpContext: {UserAgent}", userAgentString);
-            return userAgentString;
+            return userAgent?.ToString() ?? "Unknown";
         }
-        _logger.LogDebug("UserAgent not found in HttpContext, returning Unknown");
         return "Unknown";
     }
 
