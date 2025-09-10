@@ -13,6 +13,7 @@ public class McpTelemetryService
     private readonly TelemetryClient? _telemetryClient;
     private readonly IConfiguration _configuration;
     private readonly ILogger<McpTelemetryService> _logger;
+    private readonly IHttpContextAccessor _httpContextAccessor;
     
     // In-memory counters for anomaly detection
     private readonly ConcurrentDictionary<string, List<DateTime>> _userRequestCounts = new();
@@ -26,11 +27,13 @@ public class McpTelemetryService
     public McpTelemetryService(
         IConfiguration configuration,
         ILogger<McpTelemetryService> logger,
+        IHttpContextAccessor httpContextAccessor,
         TelemetryClient? telemetryClient = null)
     {
         _telemetryClient = telemetryClient;
         _configuration = configuration;
         _logger = logger;
+        _httpContextAccessor = httpContextAccessor;
         _isTelemetryEnabled = _telemetryClient != null;
         
         // Load anomaly detection thresholds
@@ -94,14 +97,14 @@ public class McpTelemetryService
         // Check for anomalies
         if (userId != null)
         {
-            CheckForAnomalies(userId, isSuccess);
+            CheckForAnomalies(userId, isSuccess, correlationId);
         }
     }
 
     /// <summary>
     /// Track authentication events
     /// </summary>
-    public void TrackAuthenticationEvent(string eventType, ClaimsPrincipal? user, bool isSuccess, string? errorMessage = null)
+    public void TrackAuthenticationEvent(string eventType, ClaimsPrincipal? user, bool isSuccess, string? errorMessage = null, string? correlationId = null)
     {
         if (!_isTelemetryEnabled || !_configuration.GetValue<bool>("ApplicationInsights:CustomTelemetry:TrackAuthenticationEvents", true))
         {
@@ -120,6 +123,12 @@ public class McpTelemetryService
             ["ClientId"] = GetClientId(user)
         };
 
+        // Add correlation ID if provided
+        if (!string.IsNullOrEmpty(correlationId))
+        {
+            properties["CorrelationId"] = correlationId;
+        }
+
         if (!string.IsNullOrEmpty(errorMessage))
         {
             properties["ErrorMessage"] = errorMessage;
@@ -137,7 +146,7 @@ public class McpTelemetryService
         // Track failed authentication attempts for anomaly detection
         if (!isSuccess && userId != null)
         {
-            CheckForAnomalies(userId, false);
+            CheckForAnomalies(userId, false, correlationId);
         }
     }
 
@@ -180,7 +189,7 @@ public class McpTelemetryService
     /// <summary>
     /// Track detected anomalies
     /// </summary>
-    public void TrackAnomaly(string anomalyType, string userId, Dictionary<string, string>? additionalProperties = null)
+    public void TrackAnomaly(string anomalyType, string userId, Dictionary<string, string>? additionalProperties = null, string? correlationId = null)
     {
         if (!_isTelemetryEnabled || !_configuration.GetValue<bool>("ApplicationInsights:CustomTelemetry:TrackAnomalies", true))
         {
@@ -195,6 +204,12 @@ public class McpTelemetryService
             ["UserId"] = userId,
             ["Timestamp"] = DateTimeOffset.UtcNow.ToString("O")
         };
+
+        // Add correlation ID if provided
+        if (!string.IsNullOrEmpty(correlationId))
+        {
+            properties["CorrelationId"] = correlationId;
+        }
 
         if (additionalProperties != null)
         {
@@ -233,7 +248,7 @@ public class McpTelemetryService
         _telemetryClient?.Flush();
     }
 
-    private void CheckForAnomalies(string userId, bool isSuccess)
+    private void CheckForAnomalies(string userId, bool isSuccess, string? correlationId = null)
     {
         var now = DateTime.UtcNow;
         var oneMinuteAgo = now.AddMinutes(-1);
@@ -253,7 +268,7 @@ public class McpTelemetryService
                 {
                     ["RequestCount"] = requestTimes.Count.ToString(),
                     ["ThresholdExceeded"] = _maxRequestsPerMinute.ToString()
-                });
+                }, correlationId);
             }
         }
 
@@ -274,7 +289,7 @@ public class McpTelemetryService
                     {
                         ["FailureCount"] = failureTimes.Count.ToString(),
                         ["ThresholdExceeded"] = _maxFailuresPerMinute.ToString()
-                    });
+                    }, correlationId);
                 }
             }
         }
@@ -339,8 +354,22 @@ public class McpTelemetryService
 
     private string GetUserAgent()
     {
-        // This would be set by middleware in a real scenario
+        var httpContext = _httpContextAccessor.HttpContext;
+        if (httpContext?.Items.TryGetValue("UserAgent", out var userAgent) == true)
+        {
+            return userAgent?.ToString() ?? "Unknown";
+        }
         return "Unknown";
+    }
+
+    private string? GetCorrelationIdFromContext()
+    {
+        var httpContext = _httpContextAccessor.HttpContext;
+        if (httpContext?.Items.TryGetValue("CorrelationId", out var correlationId) == true)
+        {
+            return correlationId?.ToString();
+        }
+        return null;
     }
 
     private string SanitizeKey(string key)

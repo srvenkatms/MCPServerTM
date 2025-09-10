@@ -44,14 +44,16 @@ builder.Services.AddSingleton<McpTelemetryService>(provider =>
 {
     var configuration = provider.GetRequiredService<IConfiguration>();
     var logger = provider.GetRequiredService<ILogger<McpTelemetryService>>();
+    var httpContextAccessor = provider.GetRequiredService<IHttpContextAccessor>();
     
     // Try to get TelemetryClient, but don't fail if it's not available
     var telemetryClient = provider.GetService<Microsoft.ApplicationInsights.TelemetryClient>();
     
-    return new McpTelemetryService(configuration, logger, telemetryClient);
+    return new McpTelemetryService(configuration, logger, httpContextAccessor, telemetryClient);
 });
 
 // Add services to the container.
+builder.Services.AddHttpContextAccessor();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
@@ -153,7 +155,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             {
                 // Track authentication failure
                 var telemetryService = context.HttpContext.RequestServices.GetService<McpTelemetryService>();
-                telemetryService?.TrackAuthenticationEvent("AuthenticationFailed", context.Principal, false, context.Exception?.Message);
+                var correlationId = context.HttpContext.Items["CorrelationId"]?.ToString();
+                telemetryService?.TrackAuthenticationEvent("AuthenticationFailed", context.Principal, false, context.Exception?.Message, correlationId);
                 
                 if (builder.Environment.IsDevelopment() || skipSignatureValidation)
                 {
@@ -165,7 +168,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             {
                 // Track successful authentication
                 var telemetryService = context.HttpContext.RequestServices.GetService<McpTelemetryService>();
-                telemetryService?.TrackAuthenticationEvent("TokenValidated", context.Principal, true);
+                var correlationId = context.HttpContext.Items["CorrelationId"]?.ToString();
+                telemetryService?.TrackAuthenticationEvent("TokenValidated", context.Principal, true, null, correlationId);
                 
                 if (builder.Environment.IsDevelopment() || skipSignatureValidation)
                 {
@@ -182,7 +186,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             {
                 // Track authentication challenge
                 var telemetryService = context.HttpContext.RequestServices.GetService<McpTelemetryService>();
-                telemetryService?.TrackAuthenticationEvent("Challenge", null, false, $"{context.Error} - {context.ErrorDescription}");
+                var correlationId = context.HttpContext.Items["CorrelationId"]?.ToString();
+                telemetryService?.TrackAuthenticationEvent("Challenge", null, false, $"{context.Error} - {context.ErrorDescription}", correlationId);
                 
                 if (builder.Environment.IsDevelopment() || skipSignatureValidation)
                 {
@@ -194,7 +199,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             {
                 // Track forbidden access
                 var telemetryService = context.HttpContext.RequestServices.GetService<McpTelemetryService>();
-                telemetryService?.TrackAuthenticationEvent("Forbidden", context.HttpContext.User, false);
+                var correlationId = context.HttpContext.Items["CorrelationId"]?.ToString();
+                telemetryService?.TrackAuthenticationEvent("Forbidden", context.HttpContext.User, false, null, correlationId);
                 
                 if (builder.Environment.IsDevelopment() || skipSignatureValidation)
                 {
