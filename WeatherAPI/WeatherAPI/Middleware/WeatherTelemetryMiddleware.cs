@@ -33,9 +33,16 @@ public class WeatherTelemetryMiddleware
             var clientIp = GetClientIpAddress(context);
             var userAgent = context.Request.Headers.UserAgent.ToString();
             
+            // Handle correlation ID for end-to-end tracing
+            var correlationId = GetOrGenerateCorrelationId(context);
+            
             // Set context items for telemetry service
             context.Items["ClientIP"] = clientIp;
             context.Items["UserAgent"] = userAgent;
+            context.Items["CorrelationId"] = correlationId;
+            
+            // Add correlation ID to response headers for client visibility
+            context.Response.Headers.TryAdd("x-correlation-id", correlationId);
 
             await _next(context);
 
@@ -48,12 +55,13 @@ public class WeatherTelemetryMiddleware
                 clientIp,
                 context.Response.StatusCode, 
                 stopwatch.ElapsedMilliseconds,
-                userAgent);
+                userAgent,
+                correlationId);
 
             // Track specific Weather API endpoints with more detail
             if (context.Request.Path.StartsWithSegments("/api/weather"))
             {
-                TrackWeatherEndpoint(context, stopwatch.ElapsedMilliseconds, clientIp);
+                TrackWeatherEndpoint(context, stopwatch.ElapsedMilliseconds, clientIp, correlationId);
             }
         }
         catch (Exception ex)
@@ -63,11 +71,14 @@ public class WeatherTelemetryMiddleware
             // Track the error
             var endpoint = $"{context.Request.Method} {context.Request.Path}";
             var clientIp = GetClientIpAddress(context);
+            var correlationId = context.Items["CorrelationId"]?.ToString() ?? GetOrGenerateCorrelationId(context);
             _telemetryService.TrackApiRequest(
                 endpoint, 
                 clientIp,
                 500, 
-                stopwatch.ElapsedMilliseconds);
+                stopwatch.ElapsedMilliseconds,
+                userAgent: null,
+                correlationId);
 
             _logger.LogError(ex, "Unhandled exception in request to {Endpoint}", endpoint);
             throw;
@@ -78,7 +89,7 @@ public class WeatherTelemetryMiddleware
         }
     }
 
-    private void TrackWeatherEndpoint(HttpContext context, double duration, string? clientIp)
+    private void TrackWeatherEndpoint(HttpContext context, double duration, string? clientIp, string correlationId)
     {
         var path = context.Request.Path.Value?.ToLowerInvariant();
         var method = context.Request.Method;
@@ -92,49 +103,53 @@ public class WeatherTelemetryMiddleware
         {
             case var currentPath when currentPath?.Contains("/current") == true:
                 _telemetryService.TrackWeatherRequest("CurrentWeather", city ?? "Unknown", clientIp, 
-                    null, isSuccess, duration, statusCode);
+                    null, isSuccess, duration, statusCode, correlationId);
                 _telemetryService.TrackCustomMetric("Weather.Current.Requests", 1, new Dictionary<string, string>
                 {
                     ["City"] = city ?? "Unknown",
                     ["ClientIP"] = clientIp ?? "Unknown",
                     ["Duration"] = duration.ToString(),
-                    ["StatusCode"] = statusCode.ToString()
+                    ["StatusCode"] = statusCode.ToString(),
+                    ["CorrelationId"] = correlationId
                 });
                 break;
 
             case var forecastPath when forecastPath?.Contains("/forecast") == true:
                 _telemetryService.TrackWeatherRequest("ForecastWeather", city ?? "Unknown", clientIp, 
-                    null, isSuccess, duration, statusCode);
+                    null, isSuccess, duration, statusCode, correlationId);
                 _telemetryService.TrackCustomMetric("Weather.Forecast.Requests", 1, new Dictionary<string, string>
                 {
                     ["City"] = city ?? "Unknown",
                     ["ClientIP"] = clientIp ?? "Unknown",
                     ["Duration"] = duration.ToString(),
-                    ["StatusCode"] = statusCode.ToString()
+                    ["StatusCode"] = statusCode.ToString(),
+                    ["CorrelationId"] = correlationId
                 });
                 break;
 
             case var alertsPath when alertsPath?.Contains("/alerts") == true:
                 _telemetryService.TrackWeatherRequest("WeatherAlerts", city ?? "Unknown", clientIp, 
-                    null, isSuccess, duration, statusCode);
+                    null, isSuccess, duration, statusCode, correlationId);
                 _telemetryService.TrackCustomMetric("Weather.Alerts.Requests", 1, new Dictionary<string, string>
                 {
                     ["City"] = city ?? "Unknown",
                     ["ClientIP"] = clientIp ?? "Unknown",
                     ["Duration"] = duration.ToString(),
-                    ["StatusCode"] = statusCode.ToString()
+                    ["StatusCode"] = statusCode.ToString(),
+                    ["CorrelationId"] = correlationId
                 });
                 break;
 
             case var generalPath when generalPath?.StartsWith("/api/weather/") == true && !generalPath.Contains("/current") && !generalPath.Contains("/forecast") && !generalPath.Contains("/alerts"):
                 _telemetryService.TrackWeatherRequest("GeneralWeather", city ?? "Unknown", clientIp, 
-                    null, isSuccess, duration, statusCode);
+                    null, isSuccess, duration, statusCode, correlationId);
                 _telemetryService.TrackCustomMetric("Weather.General.Requests", 1, new Dictionary<string, string>
                 {
                     ["City"] = city ?? "Unknown",
                     ["ClientIP"] = clientIp ?? "Unknown",
                     ["Duration"] = duration.ToString(),
-                    ["StatusCode"] = statusCode.ToString()
+                    ["StatusCode"] = statusCode.ToString(),
+                    ["CorrelationId"] = correlationId
                 });
                 break;
         }
@@ -169,6 +184,28 @@ public class WeatherTelemetryMiddleware
 
         // Fall back to remote IP address
         return context.Connection.RemoteIpAddress?.ToString();
+    }
+
+    private string GetOrGenerateCorrelationId(HttpContext context)
+    {
+        // Check for standard correlation ID headers
+        var correlationId = context.Request.Headers["x-correlation-id"].FirstOrDefault()
+            ?? context.Request.Headers["Request-ID"].FirstOrDefault()
+            ?? context.Request.Headers["x-request-id"].FirstOrDefault()
+            ?? context.Request.Headers["x-ms-request-id"].FirstOrDefault();
+            
+        if (string.IsNullOrEmpty(correlationId))
+        {
+            // Generate a new correlation ID
+            correlationId = Guid.NewGuid().ToString();
+            _logger.LogDebug("Generated new correlation ID: {CorrelationId}", correlationId);
+        }
+        else
+        {
+            _logger.LogDebug("Using existing correlation ID: {CorrelationId}", correlationId);
+        }
+        
+        return correlationId;
     }
 
     private string? ExtractCityFromPath(string? path)

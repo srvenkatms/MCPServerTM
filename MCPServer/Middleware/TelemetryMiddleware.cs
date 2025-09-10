@@ -33,6 +33,13 @@ public class TelemetryMiddleware
             var userAgent = context.Request.Headers.UserAgent.ToString();
             context.Items["UserAgent"] = userAgent;
 
+            // Handle correlation ID for end-to-end tracing
+            var correlationId = GetOrGenerateCorrelationId(context);
+            context.Items["CorrelationId"] = correlationId;
+            
+            // Add correlation ID to response headers for client visibility
+            context.Response.Headers.TryAdd("x-correlation-id", correlationId);
+
             await _next(context);
 
             stopwatch.Stop();
@@ -43,12 +50,13 @@ public class TelemetryMiddleware
                 endpoint, 
                 context.User, 
                 context.Response.StatusCode, 
-                stopwatch.ElapsedMilliseconds);
+                stopwatch.ElapsedMilliseconds,
+                correlationId);
 
             // Track specific MCP endpoints with more detail
             if (context.Request.Path.StartsWithSegments("/mcp"))
             {
-                TrackMcpEndpoint(context, stopwatch.ElapsedMilliseconds);
+                TrackMcpEndpoint(context, stopwatch.ElapsedMilliseconds, correlationId);
             }
         }
         catch (Exception ex)
@@ -57,11 +65,13 @@ public class TelemetryMiddleware
             
             // Track the error
             var endpoint = $"{context.Request.Method} {context.Request.Path}";
+            var correlationId = context.Items["CorrelationId"]?.ToString() ?? GetOrGenerateCorrelationId(context);
             _telemetryService.TrackApiRequest(
                 endpoint, 
                 context.User, 
                 500, 
-                stopwatch.ElapsedMilliseconds);
+                stopwatch.ElapsedMilliseconds,
+                correlationId);
 
             _logger.LogError(ex, "Unhandled exception in request to {Endpoint}", endpoint);
             throw;
@@ -72,7 +82,7 @@ public class TelemetryMiddleware
         }
     }
 
-    private void TrackMcpEndpoint(HttpContext context, double duration)
+    private void TrackMcpEndpoint(HttpContext context, double duration, string correlationId)
     {
         var path = context.Request.Path.Value?.ToLowerInvariant();
         var method = context.Request.Method;
@@ -86,7 +96,8 @@ public class TelemetryMiddleware
                     _telemetryService.TrackCustomMetric("MCP.Tools.List", 1, new Dictionary<string, string>
                     {
                         ["UserId"] = GetUserId(context),
-                        ["Duration"] = duration.ToString()
+                        ["Duration"] = duration.ToString(),
+                        ["CorrelationId"] = correlationId
                     });
                 }
                 break;
@@ -102,7 +113,8 @@ public class TelemetryMiddleware
                             ["ToolName"] = toolName,
                             ["UserId"] = GetUserId(context),
                             ["Duration"] = duration.ToString(),
-                            ["StatusCode"] = context.Response.StatusCode.ToString()
+                            ["StatusCode"] = context.Response.StatusCode.ToString(),
+                            ["CorrelationId"] = correlationId
                         });
                     }
                 }
@@ -112,7 +124,8 @@ public class TelemetryMiddleware
                 _telemetryService.TrackCustomMetric("MCP.Info.Access", 1, new Dictionary<string, string>
                 {
                     ["UserId"] = GetUserId(context),
-                    ["Duration"] = duration.ToString()
+                    ["Duration"] = duration.ToString(),
+                    ["CorrelationId"] = correlationId
                 });
                 break;
         }
@@ -124,6 +137,28 @@ public class TelemetryMiddleware
             ?? context.User?.FindFirst("sub")?.Value 
             ?? context.User?.FindFirst("oid")?.Value 
             ?? "Anonymous";
+    }
+
+    private string GetOrGenerateCorrelationId(HttpContext context)
+    {
+        // Check for standard correlation ID headers
+        var correlationId = context.Request.Headers["x-correlation-id"].FirstOrDefault()
+            ?? context.Request.Headers["Request-ID"].FirstOrDefault()
+            ?? context.Request.Headers["x-request-id"].FirstOrDefault()
+            ?? context.Request.Headers["x-ms-request-id"].FirstOrDefault();
+            
+        if (string.IsNullOrEmpty(correlationId))
+        {
+            // Generate a new correlation ID
+            correlationId = Guid.NewGuid().ToString();
+            _logger.LogDebug("Generated new correlation ID: {CorrelationId}", correlationId);
+        }
+        else
+        {
+            _logger.LogDebug("Using existing correlation ID: {CorrelationId}", correlationId);
+        }
+        
+        return correlationId;
     }
 
     private string? ExtractToolName(string? path)

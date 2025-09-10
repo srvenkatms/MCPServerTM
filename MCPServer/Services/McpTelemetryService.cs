@@ -46,7 +46,7 @@ public class McpTelemetryService
     /// <summary>
     /// Track tool usage with detailed parameters
     /// </summary>
-    public void TrackToolUsage(string toolName, ClaimsPrincipal? user, Dictionary<string, object>? parameters = null, bool isSuccess = true, double? duration = null)
+    public void TrackToolUsage(string toolName, ClaimsPrincipal? user, Dictionary<string, object>? parameters = null, bool isSuccess = true, double? duration = null, string? correlationId = null)
     {
         if (!_isTelemetryEnabled || !_configuration.GetValue<bool>("ApplicationInsights:CustomTelemetry:TrackToolUsage", true))
         {
@@ -64,6 +64,12 @@ public class McpTelemetryService
             ["UserAgent"] = GetUserAgent(),
             ["ClientId"] = GetClientId(user)
         };
+
+        // Add correlation ID if provided
+        if (!string.IsNullOrEmpty(correlationId))
+        {
+            telemetryProperties["CorrelationId"] = correlationId;
+        }
 
         var telemetryMetrics = new Dictionary<string, double>();
         
@@ -138,7 +144,7 @@ public class McpTelemetryService
     /// <summary>
     /// Track API request patterns
     /// </summary>
-    public void TrackApiRequest(string endpoint, ClaimsPrincipal? user, int statusCode, double duration)
+    public void TrackApiRequest(string endpoint, ClaimsPrincipal? user, int statusCode, double duration, string? correlationId = null)
     {
         if (!_isTelemetryEnabled)
         {
@@ -156,6 +162,12 @@ public class McpTelemetryService
             ["UserAgent"] = GetUserAgent(),
             ["ClientId"] = GetClientId(user)
         };
+
+        // Add correlation ID if provided
+        if (!string.IsNullOrEmpty(correlationId))
+        {
+            properties["CorrelationId"] = correlationId;
+        }
 
         var metrics = new Dictionary<string, double>
         {
