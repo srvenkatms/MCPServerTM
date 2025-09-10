@@ -13,6 +13,7 @@ public class McpTelemetryService
     private readonly TelemetryClient? _telemetryClient;
     private readonly IConfiguration _configuration;
     private readonly ILogger<McpTelemetryService> _logger;
+    private readonly IHttpContextAccessor _httpContextAccessor;
     
     // In-memory counters for anomaly detection
     private readonly ConcurrentDictionary<string, List<DateTime>> _userRequestCounts = new();
@@ -26,11 +27,13 @@ public class McpTelemetryService
     public McpTelemetryService(
         IConfiguration configuration,
         ILogger<McpTelemetryService> logger,
+        IHttpContextAccessor httpContextAccessor,
         TelemetryClient? telemetryClient = null)
     {
         _telemetryClient = telemetryClient;
         _configuration = configuration;
         _logger = logger;
+        _httpContextAccessor = httpContextAccessor;
         _isTelemetryEnabled = _telemetryClient != null;
         
         // Load anomaly detection thresholds
@@ -101,7 +104,7 @@ public class McpTelemetryService
     /// <summary>
     /// Track authentication events
     /// </summary>
-    public void TrackAuthenticationEvent(string eventType, ClaimsPrincipal? user, bool isSuccess, string? errorMessage = null)
+    public void TrackAuthenticationEvent(string eventType, ClaimsPrincipal? user, bool isSuccess, string? errorMessage = null, string? correlationId = null)
     {
         if (!_isTelemetryEnabled || !_configuration.GetValue<bool>("ApplicationInsights:CustomTelemetry:TrackAuthenticationEvents", true))
         {
@@ -119,6 +122,12 @@ public class McpTelemetryService
             ["UserAgent"] = GetUserAgent(),
             ["ClientId"] = GetClientId(user)
         };
+
+        // Add correlation ID if provided
+        if (!string.IsNullOrEmpty(correlationId))
+        {
+            properties["CorrelationId"] = correlationId;
+        }
 
         if (!string.IsNullOrEmpty(errorMessage))
         {
@@ -180,7 +189,7 @@ public class McpTelemetryService
     /// <summary>
     /// Track detected anomalies
     /// </summary>
-    public void TrackAnomaly(string anomalyType, string userId, Dictionary<string, string>? additionalProperties = null)
+    public void TrackAnomaly(string anomalyType, string userId, Dictionary<string, string>? additionalProperties = null, string? correlationId = null)
     {
         if (!_isTelemetryEnabled || !_configuration.GetValue<bool>("ApplicationInsights:CustomTelemetry:TrackAnomalies", true))
         {
@@ -195,6 +204,12 @@ public class McpTelemetryService
             ["UserId"] = userId,
             ["Timestamp"] = DateTimeOffset.UtcNow.ToString("O")
         };
+
+        // Add correlation ID if provided
+        if (!string.IsNullOrEmpty(correlationId))
+        {
+            properties["CorrelationId"] = correlationId;
+        }
 
         if (additionalProperties != null)
         {
@@ -339,8 +354,25 @@ public class McpTelemetryService
 
     private string GetUserAgent()
     {
-        // This would be set by middleware in a real scenario
+        var httpContext = _httpContextAccessor.HttpContext;
+        if (httpContext?.Items.TryGetValue("UserAgent", out var userAgent) == true)
+        {
+            var userAgentString = userAgent?.ToString() ?? "Unknown";
+            _logger.LogDebug("Retrieved UserAgent from HttpContext: {UserAgent}", userAgentString);
+            return userAgentString;
+        }
+        _logger.LogDebug("UserAgent not found in HttpContext, returning Unknown");
         return "Unknown";
+    }
+
+    private string? GetCorrelationIdFromContext()
+    {
+        var httpContext = _httpContextAccessor.HttpContext;
+        if (httpContext?.Items.TryGetValue("CorrelationId", out var correlationId) == true)
+        {
+            return correlationId?.ToString();
+        }
+        return null;
     }
 
     private string SanitizeKey(string key)

@@ -44,14 +44,16 @@ builder.Services.AddSingleton<McpTelemetryService>(provider =>
 {
     var configuration = provider.GetRequiredService<IConfiguration>();
     var logger = provider.GetRequiredService<ILogger<McpTelemetryService>>();
+    var httpContextAccessor = provider.GetRequiredService<IHttpContextAccessor>();
     
     // Try to get TelemetryClient, but don't fail if it's not available
     var telemetryClient = provider.GetService<Microsoft.ApplicationInsights.TelemetryClient>();
     
-    return new McpTelemetryService(configuration, logger, telemetryClient);
+    return new McpTelemetryService(configuration, logger, httpContextAccessor, telemetryClient);
 });
 
 // Add services to the container.
+builder.Services.AddHttpContextAccessor();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
